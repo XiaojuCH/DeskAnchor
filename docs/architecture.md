@@ -32,7 +32,9 @@ After the supported batch positioning call succeeds, every moved PIDL is read ba
 
 ## Developer verification boundary
 
-`verification.rs` and the `deskanchor-verify` binary are developer-only tooling and are not reachable from Tauri IPC or the production UI. The destructive integration test is ignored, requires `DESKANCHOR_DESTRUCTIVE_TESTS=1`, and only swaps the positions of two pre-created, uniquely identified fixture files. A complete active recovery record is atomically persisted before mutation. RAII attempts recovery on unwind or ordinary error; a durable active marker covers process termination and blocks later runs until the recovery command succeeds. See `docs/verification.md`.
+`verification.rs` and the `deskanchor-verify` binary are developer-only tooling and are not reachable from Tauri IPC or the production UI. The destructive integration test is ignored, requires `DESKANCHOR_DESTRUCTIVE_TESTS=1`, and only swaps the positions of two pre-created, uniquely identified fixture files. A complete active recovery record is atomically persisted before mutation. RAII attempts recovery on unwind or ordinary error; a durable active marker covers process termination and blocks later runs until the recovery command succeeds.
+
+The single supported recovery failpoint, `DESKANCHOR_VERIFICATION_FAILPOINT=after-mutation`, is parsed before desktop capture and also requires the destructive opt-in. After the fixture mutation has settled and passed a complete diff, it transitions the recovery guard from `Armed` to `ManualRecoveryRequired`, returns a dedicated `RECOVERY_REQUIRED` result, and exits normally. The guard's Drop implementation deliberately leaves the active record untouched only in that explicit state. It does not panic, abort, terminate the process, or affect production restore. See `docs/verification.md`.
 
 ## Threading and unsafe code
 

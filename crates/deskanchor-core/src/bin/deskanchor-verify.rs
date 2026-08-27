@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use anyhow::{Result, bail};
 use deskanchor_core::verification::{
-    VerificationRecoveryStore, recover_last_verification, run_destructive_roundtrip,
+    DestructiveVerificationRun, VerificationRecoveryStore, recover_last_verification,
+    run_destructive_roundtrip,
 };
 
 fn main() -> Result<()> {
@@ -20,8 +21,12 @@ fn main() -> Result<()> {
 
     match command.as_deref() {
         Some("verify-destructive") => {
-            let summary = run_destructive_roundtrip(store)?;
-            summary.print_human_readable();
+            match run_destructive_roundtrip(store)? {
+                DestructiveVerificationRun::Verified(summary) => summary.print_human_readable(),
+                DestructiveVerificationRun::RecoveryRequired(summary) => {
+                    summary.print_human_readable()
+                }
+            }
             Ok(())
         }
         Some("recover-last-verification") => {

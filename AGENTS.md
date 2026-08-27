@@ -15,6 +15,7 @@ Rules:
 - Do not require elevation, add accounts/cloud sync, window restoration, auto-restore daemons, updaters, or Fences-like features without an explicit scope change.
 - Do not present planned or unverified behavior as complete. Update `PROJECT_STATE.md` after material changes or verification.
 - Never run destructive desktop verification on a user's normal host. It must remain ignored, require `DESKANCHOR_DESTRUCTIVE_TESTS=1`, operate only on the two named fixtures, and persist the complete recovery record before mutation.
+- Never trigger `DESKANCHOR_VERIFICATION_FAILPOINT=after-mutation` outside an isolated validation machine. It intentionally leaves the fixtures swapped and the active recovery record in place for a subsequent recovery test.
 - An existing verification `active-recovery.json` blocks every new destructive run. Recover and archive it; do not delete recovery evidence to bypass the guard.
 
 Before handoff, run formatting, clippy with warnings denied, Rust tests, frontend lint/typecheck/tests/build, and a Tauri production build. Real Explorer tests are Windows-only and must be reported separately from unit tests. Never report the destructive harness as verified until it has run in an isolated test machine and the matrix has been updated from recorded output.

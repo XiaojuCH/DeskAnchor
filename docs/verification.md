@@ -32,6 +32,8 @@ The destructive integration test has all of these gates:
 3. Two exact, unique fixtures at distinct positions.
 4. An atomically persisted complete recovery record before mutation.
 
+The optional recovery failpoint adds another exact gate: `DESKANCHOR_VERIFICATION_FAILPOINT` must equal `after-mutation`. It is ignored when absent, unknown values are rejected before capture, and it cannot bypass the destructive opt-in.
+
 Recovery data is local and contains private desktop names/identities:
 
 ```text
@@ -51,6 +53,40 @@ cargo test -p deskanchor-core --test windows_desktop destructive_fixture_round_t
 ```
 
 The test captures the full layout, persists recovery, swaps only the two fixture positions, verifies the mutated layout through settle capture/diff, restores the original complete snapshot, and performs a final exact full diff. Completion evidence is retained under `records`.
+
+## Recorded Windows 11 VM baseline
+
+The first fixed-fixture run passed on an isolated Windows 11 Pro 23H2 build 22631 AMD64 VM with one 2283×1278 virtual display at 100% scale and six desktop items. Fixture A started at `(698, 202)` and fixture B at `(1914, 202)`. Mutation passed, settle passed, recovery used three observations over 323 ms, and the final complete diff contained six unchanged items with no moved, missing, new, or ambiguous items. The active marker was absent afterward, and verified evidence was retained as:
+
+```text
+verification-20260827T1059529044508Z-10848-verified.json
+```
+
+No unrelated desktop item names or user-specific path are recorded here. This single baseline does not establish broader Windows/display compatibility.
+
+## Controlled after-mutation recovery test
+
+Only in an isolated VM, run:
+
+```powershell
+$env:DESKANCHOR_DESTRUCTIVE_TESTS = "1"
+$env:DESKANCHOR_VERIFICATION_FAILPOINT = "after-mutation"
+C:\DeskAnchorTest\deskanchor-verify.exe verify-destructive
+```
+
+The harness still persists the complete active recovery record, swaps only the two fixtures, waits for settled mutation, and confirms the full mutated diff. It then transitions the RAII guard to an explicit manual-recovery state and exits normally with `RESULT: RECOVERY_REQUIRED`. It does not panic or simulate a process crash. The fixture positions and `active-recovery.json` are intentionally left unchanged so the persistent recovery path can be tested reproducibly.
+
+At this point, do not move either fixture, change the display configuration, create/delete/rename desktop items, start another destructive run, or delete `active-recovery.json`. No new completion evidence should exist yet; the active record remains in status `active`.
+
+Recover with the existing implementation:
+
+```powershell
+Remove-Item Env:DESKANCHOR_VERIFICATION_FAILPOINT
+$env:DESKANCHOR_DESTRUCTIVE_TESTS = "1"
+C:\DeskAnchorTest\deskanchor-verify.exe recover-last-verification
+```
+
+Successful recovery restores the complete original snapshot, performs settle verification and a final exact diff, archives evidence with a `-recovered-by-command.json` suffix, and only then removes the active marker.
 
 ## Crash recovery
 

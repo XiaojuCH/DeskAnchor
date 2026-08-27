@@ -4,7 +4,8 @@ use std::collections::HashSet;
 
 use deskanchor_core::desktop::capture_current;
 use deskanchor_core::verification::{
-    VerificationRecoveryStore, require_destructive_opt_in, run_destructive_roundtrip,
+    DestructiveVerificationRun, VerificationRecoveryStore, require_destructive_opt_in,
+    run_destructive_roundtrip,
 };
 
 #[test]
@@ -31,8 +32,15 @@ fn destructive_fixture_round_trip_restores_the_complete_layout() {
     );
     let store = VerificationRecoveryStore::local_default()
         .expect("choose local verification recovery directory");
-    let summary = run_destructive_roundtrip(store).expect("run guarded destructive verification");
-    summary.print_human_readable();
-    assert!(summary.mutation_diff.is_exact_match());
-    assert!(summary.recovery.final_diff.is_exact_match());
+    match run_destructive_roundtrip(store).expect("run guarded destructive verification") {
+        DestructiveVerificationRun::Verified(summary) => {
+            summary.print_human_readable();
+            assert!(summary.mutation_diff.is_exact_match());
+            assert!(summary.recovery.final_diff.is_exact_match());
+        }
+        DestructiveVerificationRun::RecoveryRequired(summary) => {
+            summary.print_human_readable();
+            assert!(summary.mutation_diff.is_exact_match());
+        }
+    }
 }

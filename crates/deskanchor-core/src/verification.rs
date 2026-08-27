@@ -16,6 +16,8 @@ use crate::desktop::{
 use crate::snapshot::{Snapshot, SnapshotDiffSummary, diff_desktop};
 
 pub const DESTRUCTIVE_OPT_IN_ENV: &str = "DESKANCHOR_DESTRUCTIVE_TESTS";
+pub const VERIFICATION_FAILPOINT_ENV: &str = "DESKANCHOR_VERIFICATION_FAILPOINT";
+pub const AFTER_MUTATION_FAILPOINT: &str = "after-mutation";
 pub const FIXTURE_A: &str = "DeskAnchor-Test-A.txt";
 pub const FIXTURE_B: &str = "DeskAnchor-Test-B.txt";
 const RECOVERY_FORMAT_VERSION: u32 = 1;
@@ -161,6 +163,27 @@ enum RecoveryStatus {
     RecoveredByCommand,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VerificationFailpoint {
+    Disabled,
+    AfterMutation,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AfterMutationAction {
+    ContinueNormalRecovery,
+    LeaveActiveForManualRecovery,
+}
+
+impl VerificationFailpoint {
+    fn after_mutation_action(self) -> AfterMutationAction {
+        match self {
+            Self::Disabled => AfterMutationAction::ContinueNormalRecovery,
+            Self::AfterMutation => AfterMutationAction::LeaveActiveForManualRecovery,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct DestructiveVerificationSummary {
     pub monitor_count: usize,
@@ -176,6 +199,23 @@ pub struct RecoverySummary {
     pub restore: RestoreResult,
     pub final_diff: SnapshotDiffSummary,
     pub evidence_path: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+pub struct RecoveryRequiredSummary {
+    pub monitor_count: usize,
+    pub scale_percentages: Vec<Option<u32>>,
+    pub icons_before: usize,
+    pub mutation: RestoreResult,
+    pub mutation_diff: SnapshotDiffSummary,
+    pub active_recovery_path: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+#[must_use]
+pub enum DestructiveVerificationRun {
+    Verified(Box<DestructiveVerificationSummary>),
+    RecoveryRequired(Box<RecoveryRequiredSummary>),
 }
 
 impl DestructiveVerificationSummary {
@@ -212,31 +252,69 @@ impl DestructiveVerificationSummary {
 impl RecoverySummary {
     pub fn print_human_readable(&self) {
         println!("DeskAnchor verification recovery\n");
-        println!("Restore outcome: {:?}", self.restore.outcome);
-        println!("Settle attempts: {}", self.restore.verification.attempts);
-        println!(
-            "Settle elapsed: {} ms\n",
-            self.restore.verification.elapsed_ms
-        );
+        println!("Recovery restore: PASS ({:?})", self.restore.outcome);
+        let settle_result = match self.restore.verification.settle {
+            crate::desktop::VerificationStatus::Passed => "PASS",
+            crate::desktop::VerificationStatus::NotRequired => "NOT REQUIRED",
+            crate::desktop::VerificationStatus::NotRun
+            | crate::desktop::VerificationStatus::Failed => "UNEXPECTED",
+        };
+        println!("Settle verification: {settle_result}");
+        println!("attempts: {}", self.restore.verification.attempts);
+        println!("elapsed: {} ms\n", self.restore.verification.elapsed_ms);
         print_diff("Final diff", self.final_diff);
-        println!("\nRecovery: CONFIRMED");
-        println!("Evidence: {}", self.evidence_path.display());
+        println!("Final diff exact: true");
+        println!("\nEvidence archived: {}", self.evidence_path.display());
+        println!("Active recovery cleared: true");
         println!("\nRESULT: RECOVERED");
     }
 }
 
+impl RecoveryRequiredSummary {
+    pub fn print_human_readable(&self) {
+        println!("DeskAnchor destructive round-trip verification\n");
+        println!(
+            "OS: {} ({})",
+            std::env::consts::OS,
+            std::env::var("PROCESSOR_ARCHITECTURE")
+                .unwrap_or_else(|_| "unknown architecture".into())
+        );
+        println!(
+            "Display configuration: {} monitor(s); scale percentages: {:?}",
+            self.monitor_count, self.scale_percentages
+        );
+        println!("Icons before: {}\n", self.icons_before);
+        println!("Fixture A: {FIXTURE_A}");
+        println!("Fixture B: {FIXTURE_B}\n");
+        println!("Mutation: PASS");
+        println!("Mutation immediate readback: PASS");
+        println!("Settle verification: PASS");
+        println!("attempts: {}", self.mutation.verification.attempts);
+        println!("elapsed: {} ms", self.mutation.verification.elapsed_ms);
+        println!("Mutation full diff exact: true");
+        println!("\nRECOVERY FAILPOINT TRIGGERED");
+        println!("Failpoint: {AFTER_MUTATION_FAILPOINT}");
+        println!("Normal recovery intentionally skipped.");
+        println!("Desktop is intentionally left in the mutated fixture state.\n");
+        println!("Active recovery:");
+        println!("{}\n", self.active_recovery_path.display());
+        println!("Next command:");
+        println!("deskanchor-verify.exe recover-last-verification");
+        println!("\nRESULT: RECOVERY_REQUIRED");
+    }
+}
+
 pub fn require_destructive_opt_in() -> Result<()> {
-    ensure!(
-        std::env::var(DESTRUCTIVE_OPT_IN_ENV).as_deref() == Ok("1"),
-        "destructive desktop verification is disabled; explicitly set {DESTRUCTIVE_OPT_IN_ENV}=1 after reviewing the safety instructions"
-    );
-    Ok(())
+    require_destructive_opt_in_value(std::env::var(DESTRUCTIVE_OPT_IN_ENV).ok().as_deref())
 }
 
 pub fn run_destructive_roundtrip(
     store: VerificationRecoveryStore,
-) -> Result<DestructiveVerificationSummary> {
-    require_destructive_opt_in()?;
+) -> Result<DestructiveVerificationRun> {
+    let failpoint = verification_failpoint_from_values(
+        std::env::var(DESTRUCTIVE_OPT_IN_ENV).ok().as_deref(),
+        std::env::var(VERIFICATION_FAILPOINT_ENV).ok().as_deref(),
+    )?;
     ensure!(
         !store.active_path().exists(),
         "previous incomplete recovery snapshot exists at {}; run recover-last-verification before starting a new destructive test",
@@ -303,15 +381,30 @@ pub fn run_destructive_roundtrip(
         .map(|monitor| monitor.scale_percent)
         .collect();
     let icons_before = original.icons.len();
+    if failpoint.after_mutation_action() == AfterMutationAction::LeaveActiveForManualRecovery {
+        let active_recovery_path = guard.disarm_for_manual_recovery()?;
+        return Ok(DestructiveVerificationRun::RecoveryRequired(Box::new(
+            RecoveryRequiredSummary {
+                monitor_count,
+                scale_percentages,
+                icons_before,
+                mutation,
+                mutation_diff,
+                active_recovery_path,
+            },
+        )));
+    }
     let recovery = guard.recover_and_complete(RecoveryStatus::Verified)?;
-    Ok(DestructiveVerificationSummary {
-        monitor_count,
-        scale_percentages,
-        icons_before,
-        mutation,
-        mutation_diff,
-        recovery,
-    })
+    Ok(DestructiveVerificationRun::Verified(Box::new(
+        DestructiveVerificationSummary {
+            monitor_count,
+            scale_percentages,
+            icons_before,
+            mutation,
+            mutation_diff,
+            recovery,
+        },
+    )))
 }
 
 pub fn recover_last_verification(store: VerificationRecoveryStore) -> Result<RecoverySummary> {
@@ -323,6 +416,29 @@ pub fn recover_last_verification(store: VerificationRecoveryStore) -> Result<Rec
 struct RecoveryGuard {
     store: VerificationRecoveryStore,
     record: Option<RecoveryRecord>,
+    state: RecoveryGuardState,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RecoveryGuardState {
+    Armed,
+    ManualRecoveryRequired,
+    Completed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RecoveryDropAction {
+    RecoverAutomatically,
+    LeaveActive,
+}
+
+impl RecoveryGuardState {
+    fn drop_action(self) -> RecoveryDropAction {
+        match self {
+            Self::Armed => RecoveryDropAction::RecoverAutomatically,
+            Self::ManualRecoveryRequired | Self::Completed => RecoveryDropAction::LeaveActive,
+        }
+    }
 }
 
 impl RecoveryGuard {
@@ -330,22 +446,40 @@ impl RecoveryGuard {
         Self {
             store,
             record: Some(record),
+            state: RecoveryGuardState::Armed,
         }
     }
 
+    fn disarm_for_manual_recovery(&mut self) -> Result<PathBuf> {
+        ensure!(
+            self.state == RecoveryGuardState::Armed && self.record.is_some(),
+            "recovery guard must be armed before entering manual recovery state"
+        );
+        self.state = RecoveryGuardState::ManualRecoveryRequired;
+        Ok(self.store.active_path())
+    }
+
     fn recover_and_complete(&mut self, status: RecoveryStatus) -> Result<RecoverySummary> {
+        ensure!(
+            self.state == RecoveryGuardState::Armed,
+            "only an armed recovery guard can complete automatic recovery"
+        );
         let record = self
             .record
             .as_ref()
             .context("recovery guard is no longer armed")?;
         let summary = recover_record(&self.store, record, status)?;
         self.record = None;
+        self.state = RecoveryGuardState::Completed;
         Ok(summary)
     }
 }
 
 impl Drop for RecoveryGuard {
     fn drop(&mut self) {
+        if self.state.drop_action() == RecoveryDropAction::LeaveActive {
+            return;
+        }
         let Some(record) = self.record.as_ref() else {
             return;
         };
@@ -359,6 +493,28 @@ impl Drop for RecoveryGuard {
                 self.store.active_path().display()
             ),
         }
+    }
+}
+
+fn require_destructive_opt_in_value(value: Option<&str>) -> Result<()> {
+    ensure!(
+        value == Some("1"),
+        "destructive desktop verification is disabled; explicitly set {DESTRUCTIVE_OPT_IN_ENV}=1 after reviewing the safety instructions"
+    );
+    Ok(())
+}
+
+fn verification_failpoint_from_values(
+    destructive_opt_in: Option<&str>,
+    failpoint: Option<&str>,
+) -> Result<VerificationFailpoint> {
+    require_destructive_opt_in_value(destructive_opt_in)?;
+    match failpoint {
+        None => Ok(VerificationFailpoint::Disabled),
+        Some(AFTER_MUTATION_FAILPOINT) => Ok(VerificationFailpoint::AfterMutation),
+        Some(value) => bail!(
+            "unknown {VERIFICATION_FAILPOINT_ENV} value {value:?}; only {AFTER_MUTATION_FAILPOINT:?} is supported"
+        ),
     }
 }
 
@@ -575,5 +731,82 @@ mod tests {
         let icon = sample_snapshot().icons.remove(0);
         assert!(unique_fixture_index(&[], FIXTURE_A).is_err());
         assert!(unique_fixture_index(&[icon.clone(), icon], FIXTURE_A).is_err());
+    }
+
+    #[test]
+    fn failpoint_is_disabled_by_default() {
+        assert_eq!(
+            verification_failpoint_from_values(Some("1"), None)
+                .expect("parse default verification settings"),
+            VerificationFailpoint::Disabled
+        );
+        assert_eq!(
+            VerificationFailpoint::Disabled.after_mutation_action(),
+            AfterMutationAction::ContinueNormalRecovery
+        );
+    }
+
+    #[test]
+    fn after_mutation_failpoint_requires_destructive_opt_in() {
+        let error = verification_failpoint_from_values(None, Some(AFTER_MUTATION_FAILPOINT))
+            .expect_err("failpoint must require destructive opt-in");
+        assert!(error.to_string().contains(DESTRUCTIVE_OPT_IN_ENV));
+
+        assert_eq!(
+            verification_failpoint_from_values(Some("1"), Some(AFTER_MUTATION_FAILPOINT))
+                .expect("parse explicitly enabled failpoint"),
+            VerificationFailpoint::AfterMutation
+        );
+    }
+
+    #[test]
+    fn unknown_failpoint_is_rejected() {
+        let error = verification_failpoint_from_values(Some("1"), Some("unexpected"))
+            .expect_err("unknown failpoint must fail closed");
+        let message = error.to_string();
+        assert!(message.contains(VERIFICATION_FAILPOINT_ENV));
+        assert!(message.contains(AFTER_MUTATION_FAILPOINT));
+    }
+
+    #[test]
+    fn only_after_mutation_failpoint_requests_manual_recovery() {
+        assert_eq!(
+            VerificationFailpoint::Disabled.after_mutation_action(),
+            AfterMutationAction::ContinueNormalRecovery
+        );
+        assert_eq!(
+            VerificationFailpoint::AfterMutation.after_mutation_action(),
+            AfterMutationAction::LeaveActiveForManualRecovery
+        );
+        assert_eq!(
+            RecoveryGuardState::Armed.drop_action(),
+            RecoveryDropAction::RecoverAutomatically
+        );
+    }
+
+    #[test]
+    fn explicit_manual_recovery_state_disarms_raii_and_keeps_active_record() {
+        let temporary = tempdir().expect("create temp directory");
+        let store = VerificationRecoveryStore::new(temporary.path());
+        let record = store.begin(&sample_snapshot()).expect("begin recovery");
+        let active_path = store.active_path();
+        {
+            let mut guard = RecoveryGuard::armed(store.clone(), record);
+            assert_eq!(guard.state, RecoveryGuardState::Armed);
+            assert_eq!(
+                guard
+                    .disarm_for_manual_recovery()
+                    .expect("enter manual recovery state"),
+                active_path
+            );
+            assert_eq!(guard.state, RecoveryGuardState::ManualRecoveryRequired);
+            assert!(guard.disarm_for_manual_recovery().is_err());
+        }
+        assert!(active_path.exists());
+        assert!(!store.root().join("records").exists());
+        assert_eq!(
+            store.load_active().expect("active recovery remains").status,
+            RecoveryStatus::Active
+        );
     }
 }
