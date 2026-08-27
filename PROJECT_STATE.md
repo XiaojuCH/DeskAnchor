@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 0.5B — Remediate the independent validation blockers in Draft PR #1. No product feature expansion.
+Phase 0.5B — Close out post-remediation VM regression evidence for Draft PR #1. No product feature expansion.
 
 ## Completed
 
@@ -16,24 +16,22 @@ Phase 0.5B — Remediate the independent validation blockers in Draft PR #1. No 
 - Fixture validation requires uniquely named, filesystem-backed regular files at the current user's Desktop known-folder paths and rejects directories, symlink/reparse items, wrong paths, and merged-desktop basename duplicates.
 - Developer-only `after-mutation` controlled recovery failpoint. It requires both explicit environment gates, disarms RAII only after mutation settles, leaves the active recovery record in place, and returns `RECOVERY_REQUIRED` without crashing the process.
 - Manual Windows verification matrix, VM instructions, the first Phase 0.5 baseline evidence record, and isolated-VM persistent recovery evidence.
+- Targeted post-remediation baseline and persistent-recovery regression evidence for the binary built from commit `28097628997e4183cbda7b0c2d8c3eab774437a7`.
 
 ## Verified
 
-- The fixed-fixture destructive harness passed on an isolated Windows 11 Pro 23H2 build 22631 AMD64 VM with one 2283×1278 virtual display at 100% scale and six desktop items.
-- Mutation passed, settle passed, recovery used three observations over 323 ms, and the final full diff was exact: six unchanged, zero moved/missing/new/ambiguous.
-- Normal recovery completion was confirmed: the active marker was removed only after verified evidence was archived as `verification-20260827T1059529044508Z-10848-verified.json`.
-- The `after-mutation` persistent recovery workflow passed on the same isolated Windows 11 Pro 23H2 build 22631 VM. Mutation passed immediate readback and settled in three attempts over 322 ms; the full mutated diff was exact; and the active marker was confirmed present after the process returned `RECOVERY_REQUIRED`.
-- The operator visually confirmed that the two dedicated fixtures remained exchanged after the failpoint. This is a manual observation in addition to, not a substitute for, the automated mutation verification.
-- A separate `recover-last-verification` process settled in three attempts over 324 ms. The final full diff was exact with six unchanged and zero moved/missing/new/ambiguous; evidence was archived as `verification-20260827T1152321625746Z-5368-recovered-by-command.json`; and the active marker was confirmed absent after `RESULT: RECOVERED`.
+- Historical pre-remediation baseline evidence: the fixed-fixture harness passed on an isolated Windows 11 Pro 23H2 build 22631 AMD64 VM with one 2283×1278 virtual display at 100% scale and six desktop items. Mutation and settle passed; recovery used three observations over 323 ms; the final full diff was exact; evidence was archived as `verification-20260827T1059529044508Z-10848-verified.json`; and the active marker was absent.
+- Historical pre-remediation persistent-recovery evidence: the `after-mutation` mutation passed immediate readback and settled in three attempts over 322 ms, the operator visually confirmed the exchanged fixtures after `RECOVERY_REQUIRED`, and a separate recovery invocation settled in three attempts over 324 ms. Its final full diff was exact, evidence was archived as `verification-20260827T1152321625746Z-5368-recovered-by-command.json`, and the active marker was absent after `RESULT: RECOVERED`.
+- Post-remediation binary provenance: the host-built and VM-executed `deskanchor-verify.exe` files were confirmed to share SHA-256 `7870B9ADAEFB08A3CD1C5389934C778C1053096F019D5218727FDE471999C926` and correspond to commit `28097628997e4183cbda7b0c2d8c3eab774437a7`.
+- Post-remediation baseline regression PASS: mutation, immediate restore, and settle verification passed in three attempts over 323 ms; the final full diff contained six unchanged and zero moved/missing/new/ambiguous items; evidence was archived as `verification-20260827T1703128240159Z-10580-b1c14ad04f2d4070b99df1c36b850556-verified.json`; and `active-recovery.json` was absent afterward.
+- Post-remediation persistent-recovery regression PASS: the controlled mutation passed immediate readback and settle verification in three attempts over 323 ms with an exact mutated diff, then returned `RECOVERY_REQUIRED`. A separate `recover-last-verification` invocation returned `Settled`, passed settle verification in three attempts over 324 ms, produced an exact six-item final diff, archived `verification-20260827T1703397294356Z-6904-fb42c270bed24db19aef7719b51a4ae7-recovered-by-command.json`, cleared the active claim, and returned `RESULT: RECOVERED`.
 - Pure settle-state behavior, snapshot/diff/matching/storage, recovery-record persistence/archive, failpoint parsing, fail-closed unknown values, opt-in enforcement, and recovery-guard state transitions pass non-destructive tests.
 - Remediation regression coverage includes atomic concurrent claim, ownership mismatch, archive/removal failure ordering, record tampering and unsafe IDs, fixture-only recovery authorization, non-fixture drift, strict fixture file validation, exact settle-deadline boundaries, and capture-error UI precedence.
 - Current-host non-destructive validation passes Rust formatting, clippy with warnings denied, 53 Rust tests, 2 frontend tests, frontend lint/typecheck/build, and the no-bundle Tauri production build. Both real-Explorer integration tests remain ignored on the host.
 
 The VM's legacy `Get-ComputerInfo` product-name string reported `Windows 10 Pro`, but build 22631 and the actual installed system are Windows 11 Pro 23H2. The evidence is recorded as Windows 11, not Windows 10.
 
-This is baseline evidence from one isolated VM configuration. It is not a general Windows 11 or display-configuration support claim.
-
-The two recorded VM PASS results validated the pre-remediation implementation. They remain historical evidence, but they do not validate the remediated recovery implementation at the current PR head. A targeted isolated-VM regression is required before merge.
+Both evidence generations come from one isolated VM configuration. The post-remediation runs show that the normal baseline and persistent-recovery workflows did not regress after the atomic-claim, format-v2 integrity, strict-fixture, and fixture-only recovery changes. They do not independently construct or prove the B1/B2/B3 boundary cases; those properties remain primarily supported by the dedicated unit and non-destructive regression tests. This is not a general Windows 11 or display-configuration support claim.
 
 ## Known limitations
 
@@ -48,4 +46,4 @@ The two recorded VM PASS results validated the pre-remediation implementation. T
 
 ## Next step
 
-On an isolated Windows 11 VM, rerun the remediated binary through (1) the baseline round-trip and (2) `after-mutation` followed by `recover-last-verification`, then return Draft PR #1 to the independent reviewer.
+Return the updated post-remediation evidence in Draft PR #1 to the independent reviewer. Do not mark the PR ready or merge it as part of this evidence-only closeout.

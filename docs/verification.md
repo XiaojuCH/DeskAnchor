@@ -73,7 +73,7 @@ verification-20260827T1059529044508Z-10848-verified.json
 
 No unrelated desktop item names or user-specific path are recorded here. This single baseline does not establish broader Windows/display compatibility.
 
-This PASS is retained as historical evidence for the pre-remediation implementation. It does not validate the format-v2 atomic-claim and fixture-only recovery implementation at the current PR head.
+This PASS is retained as historical evidence for the pre-remediation implementation. It does not by itself validate the format-v2 atomic-claim and fixture-only recovery implementation; the separate post-remediation regression evidence is recorded below.
 
 ## Controlled after-mutation recovery test
 
@@ -99,7 +99,7 @@ C:\DeskAnchorTest\deskanchor-verify.exe recover-last-verification
 
 Successful recovery verifies record integrity and ownership, captures the full desktop, rejects any non-fixture drift, restores only the stored two-identity allowlist, performs settle verification and a final exact full diff, archives evidence with a `-recovered-by-command.json` suffix, and only then removes the active claim.
 
-The recorded PASS for this scenario is also historical evidence for the pre-remediation implementation. The remediated path must be rerun in an isolated VM before merge.
+The recorded PASS for this scenario is also historical evidence for the pre-remediation implementation. The separate post-remediation regression evidence is recorded below.
 
 ## Crash recovery
 
@@ -118,11 +118,13 @@ If any non-fixture item moved, disappeared, appeared, or became ambiguous, recov
 
 The same binary can run the harness directly with `verify-destructive`, but the ignored integration-test command is preferred for recorded matrix runs because it preserves both explicit safety gates in the invocation.
 
-## Required post-remediation VM regression
+## Recorded post-remediation VM regression
 
-Previous VM evidence validated the pre-fix implementation. The remediated implementation requires a targeted VM regression run before merge:
+The targeted regression was completed using the binary from commit `28097628997e4183cbda7b0c2d8c3eab774437a7`. The host-built and VM-executed binaries were confirmed to share SHA-256 `7870B9ADAEFB08A3CD1C5389934C778C1053096F019D5218727FDE471999C926`.
 
-1. Baseline fixture round-trip.
-2. `after-mutation`, followed by a separate `recover-last-verification` process.
+On the same isolated Windows 11 Pro 23H2 build 22631 AMD64 VM with one 2283×1278 virtual display at 100% scale and six desktop items:
 
-Run both only on an isolated Windows 11 VM, retain the new evidence records and console output, and then return the Draft PR to the independent reviewer.
+- The post-remediation baseline round-trip passed mutation, immediate restore, and settle verification in three attempts over 323 ms. The final full diff was exact, evidence was archived as `verification-20260827T1703128240159Z-10580-b1c14ad04f2d4070b99df1c36b850556-verified.json`, and the active claim was absent afterward.
+- The post-remediation `after-mutation` run passed mutation, immediate readback, and settle verification in three attempts over 323 ms with an exact mutated diff, then returned `RECOVERY_REQUIRED`. A separate recovery invocation returned `Settled`, passed settle verification in three attempts over 324 ms, produced an exact final full diff, archived `verification-20260827T1703397294356Z-6904-fb42c270bed24db19aef7719b51a4ae7-recovered-by-command.json`, cleared the active claim, and returned `RECOVERED`.
+
+These post-remediation regression PASS results confirm that the normal baseline and persistent-recovery workflows still function after the atomic-claim, format-v2 integrity, strict-fixture, and fixture-only recovery changes. They do not independently construct or prove every B1/B2/B3 boundary; those safety properties remain primarily covered by the dedicated unit and non-destructive regression tests. No support inference is made for Windows 10, other DPI values, physical or multiple displays, or other untested Explorer configurations.
