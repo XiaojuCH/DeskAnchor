@@ -12,13 +12,16 @@ Phase 0.5B — Record isolated VM evidence and harden persistent recovery valida
 - Developer-only fixed-fixture destructive verification harness with an identity allowlist and no random-item fallback.
 - Persistent pre-mutation recovery guard, retained completion evidence, RAII recovery for unwind/ordinary error, and `recover-last-verification` crash-recovery command.
 - Developer-only `after-mutation` controlled recovery failpoint. It requires both explicit environment gates, disarms RAII only after mutation settles, leaves the active recovery record in place, and returns `RECOVERY_REQUIRED` without crashing the process.
-- Manual Windows verification matrix, VM instructions, and the first Phase 0.5 baseline evidence record.
+- Manual Windows verification matrix, VM instructions, the first Phase 0.5 baseline evidence record, and isolated-VM persistent recovery evidence.
 
 ## Verified
 
 - The fixed-fixture destructive harness passed on an isolated Windows 11 Pro 23H2 build 22631 AMD64 VM with one 2283×1278 virtual display at 100% scale and six desktop items.
 - Mutation passed, settle passed, recovery used three observations over 323 ms, and the final full diff was exact: six unchanged, zero moved/missing/new/ambiguous.
 - Normal recovery completion was confirmed: the active marker was removed only after verified evidence was archived as `verification-20260827T1059529044508Z-10848-verified.json`.
+- The `after-mutation` persistent recovery workflow passed on the same isolated Windows 11 Pro 23H2 build 22631 VM. Mutation passed immediate readback and settled in three attempts over 322 ms; the full mutated diff was exact; and the active marker was confirmed present after the process returned `RECOVERY_REQUIRED`.
+- The operator visually confirmed that the two dedicated fixtures remained exchanged after the failpoint. This is a manual observation in addition to, not a substitute for, the automated mutation verification.
+- A separate `recover-last-verification` process settled in three attempts over 324 ms. The final full diff was exact with six unchanged and zero moved/missing/new/ambiguous; evidence was archived as `verification-20260827T1152321625746Z-5368-recovered-by-command.json`; and the active marker was confirmed absent after `RESULT: RECOVERED`.
 - Pure settle-state behavior, snapshot/diff/matching/storage, recovery-record persistence/archive, failpoint parsing, fail-closed unknown values, opt-in enforcement, and recovery-guard state transitions pass non-destructive tests.
 - Host validation passes Rust formatting, clippy with warnings denied, 25 Rust tests, frontend lint/typecheck/test/build, and the no-bundle Tauri production build. Both real-Explorer integration tests remain ignored on the host.
 
@@ -28,8 +31,8 @@ This is baseline evidence from one isolated VM configuration. It is not a genera
 
 ## Known limitations
 
-- The new `after-mutation` controlled recovery state and subsequent `recover-last-verification` path have not yet been executed in the VM.
-- Controlled orphan mode validates the persistent recovery workflow without using panic, abort, or process termination. It does not reproduce every real crash timing or failure mode.
+- The controlled `after-mutation` path and subsequent cross-process recovery are verified in one isolated VM configuration only.
+- Controlled orphan mode validates the persistent recovery workflow without using panic, abort, or process termination. Its successful VM result does not reproduce every real crash timing or failure mode.
 - A process kill, abort, VM crash, or power loss cannot execute RAII recovery. Recovery still depends on the persisted active record and an environment compatible with the original snapshot.
 - Settle success is bounded evidence, not proof that Explorer can never rearrange after the deadline.
 - Recovery blocks on a changed display signature or any missing, new, ambiguous, or moved item that prevents an exact final diff.
@@ -38,4 +41,4 @@ This is baseline evidence from one isolated VM configuration. It is not a genera
 
 ## Next step
 
-Run the `after-mutation` controlled recovery failpoint in the existing isolated Windows 11 VM, confirm the swapped fixture state and active marker, then execute `recover-last-verification` and record the final exact recovery evidence.
+Review the completed Phase 0.5 validation evidence in Draft PR #1. No further implementation or destructive verification is pending within Phase 0.5B.
