@@ -1,0 +1,23 @@
+# Rust / Tauri
+/target/
+/src-tauri/gen/
+
+# Frontend
+/node_modules/
+/dist/
+*.tsbuildinfo
+
+# Local verification artifacts and snapshots
+/.local-verification/
+*.tmp
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local environment files
+.env
+.env.*
+!.env.example

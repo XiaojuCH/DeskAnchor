@@ -1,0 +1,27 @@
+[workspace]
+members = ["crates/deskanchor-core", "src-tauri"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"
+
+[workspace.dependencies]
+anyhow = "1.0.99"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.143"
+thiserror = "2.0.16"
+time = { version = "=0.3.44", features = ["formatting", "parsing"] }
+windows = { version = "0.62.2", features = [
+  "Win32_Foundation",
+  "Win32_Devices_Display",
+  "Win32_Graphics_Gdi",
+  "Win32_System_Com",
+  "Win32_System_Ole",
+  "Win32_System_Variant",
+  "Win32_UI_HiDpi",
+  "Win32_UI_Shell",
+  "Win32_UI_Shell_Common",
+  "Win32_UI_WindowsAndMessaging",
+] }

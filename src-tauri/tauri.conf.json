@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "DeskAnchor",
+  "version": "0.1.0",
+  "identifier": "io.github.xiaojuch.deskanchor",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "security": {
+      "csp": "default-src 'self'; style-src 'self'"
+    },
+    "windows": [
+      {
+        "title": "DeskAnchor",
+        "width": 820,
+        "height": 680,
+        "minWidth": 440,
+        "minHeight": 520,
+        "resizable": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": false,
+    "targets": "all"
+  }
+}
