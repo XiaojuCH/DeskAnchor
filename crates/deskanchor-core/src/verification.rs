@@ -2,10 +2,10 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::io::{self, ErrorKind};
-use std::os::windows::fs::MetadataExt;
+use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail, ensure};
@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use uuid::Uuid;
+use windows::Win32::Foundation::ERROR_SHARING_VIOLATION;
 
 use crate::desktop::{
     DesktopIcon, DesktopState, DisplayConfiguration, IconIdentity, RestoreOutcome, RestoreResult,
@@ -28,12 +29,17 @@ pub const FIXTURE_A: &str = "DeskAnchor-Test-A.txt";
 pub const FIXTURE_B: &str = "DeskAnchor-Test-B.txt";
 const RECOVERY_FORMAT_VERSION: u32 = 2;
 const ACTIVE_RECOVERY_FILE: &str = "active-recovery.json";
+const OPERATION_LOCK_FILE: &str = "operation.lock";
 const INTEGRITY_ALGORITHM: &str = "sha256";
 const MAX_VERIFICATION_ID_LENGTH: usize = 128;
 const WINDOWS_FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
 
 #[derive(Debug, Error)]
 pub enum VerificationRecoveryError {
+    #[error(
+        "another DeskAnchor verification/recovery operation is active (operation lock: {path})"
+    )]
+    OperationBusy { path: PathBuf },
     #[error(
         "a verification recovery claim is already active at {path}; recover it before starting another destructive verification"
     )]
@@ -68,6 +74,40 @@ impl VerificationRecoveryStore {
 
     pub fn active_path(&self) -> PathBuf {
         self.root.join(ACTIVE_RECOVERY_FILE)
+    }
+
+    fn acquire_operation_lease(&self) -> Result<VerificationOperationLease> {
+        fs::create_dir_all(&self.root).with_context(|| {
+            format!(
+                "failed to create verification recovery directory {}",
+                self.root.display()
+            )
+        })?;
+        let path = self.root.join(OPERATION_LOCK_FILE);
+        let file = match OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            // A live handle with no sharing is the lock. The file's existence is
+            // deliberately irrelevant and it may remain after the process exits.
+            .share_mode(0)
+            .open(&path)
+        {
+            Ok(file) => file,
+            Err(error) if error.raw_os_error() == Some(ERROR_SHARING_VIOLATION.0 as i32) => {
+                return Err(VerificationRecoveryError::OperationBusy { path }.into());
+            }
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "failed to acquire verification/recovery operation lease at {}",
+                        path.display()
+                    )
+                });
+            }
+        };
+        Ok(VerificationOperationLease { _file: file })
     }
 
     fn begin(
@@ -197,14 +237,67 @@ impl VerificationRecoveryStore {
         let archive_path = write_archive_exclusively(&archive_root, &stem, &completed)
             .context("failed to preserve completed recovery evidence")?;
 
-        // Evidence must exist before the active claim is cleared. Rechecking the
-        // complete record prevents this run from deleting another run's claim.
+        // Evidence must exist before the active claim is cleared. Production
+        // callers hold the lifecycle operation lease across this recheck and the
+        // removal, so no supported DeskAnchor process can replace the path in
+        // between; the sealed-record check also detects out-of-band edits.
         self.assert_ownership(record)?;
         let active_path = self.active_path();
         remove_active(&active_path).context(
             "desktop recovery was verified and archived, but the active recovery claim could not be removed",
         )?;
         Ok(archive_path)
+    }
+}
+
+#[derive(Debug)]
+struct VerificationOperationLease {
+    // Windows closes this handle on normal drop, unwind, abort, or process
+    // termination. Keeping it live with share_mode(0) excludes every other
+    // supported DeskAnchor verification/recovery operation using this path.
+    _file: File,
+}
+
+#[derive(Debug)]
+struct VerificationOperation {
+    store: VerificationRecoveryStore,
+    _lease: VerificationOperationLease,
+}
+
+impl VerificationOperation {
+    fn acquire(store: VerificationRecoveryStore) -> Result<Self> {
+        let lease = store.acquire_operation_lease()?;
+        Ok(Self {
+            store,
+            _lease: lease,
+        })
+    }
+
+    fn begin(
+        &self,
+        snapshot: &Snapshot,
+        fixture_desktop_path: &Path,
+        fixture_allowlist: Vec<IconIdentity>,
+        mutation: MutationMetadata,
+    ) -> Result<RecoveryRecord> {
+        self.store
+            .begin(snapshot, fixture_desktop_path, fixture_allowlist, mutation)
+    }
+
+    fn load_active(&self) -> Result<RecoveryRecord> {
+        self.store.load_active()
+    }
+
+    fn assert_ownership(&self, record: &RecoveryRecord) -> Result<()> {
+        self.store.assert_ownership(record)
+    }
+
+    fn archive_completed(
+        &self,
+        record: &RecoveryRecord,
+        status: RecoveryStatus,
+    ) -> Result<PathBuf> {
+        self.store.archive_completed(record, status)
     }
 }
 
@@ -538,6 +631,7 @@ pub fn run_destructive_roundtrip(
         std::env::var(DESTRUCTIVE_OPT_IN_ENV).ok().as_deref(),
         std::env::var(VERIFICATION_FAILPOINT_ENV).ok().as_deref(),
     )?;
+    let operation = VerificationOperation::acquire(store)?;
 
     let original = Snapshot::capture(capture_current()?)?;
     let fixture_desktop_path = dirs::desktop_dir()
@@ -587,13 +681,13 @@ pub fn run_destructive_roundtrip(
             },
         ],
     };
-    let record = store.begin(
+    let record = operation.begin(
         &original,
         &fixture_desktop_path,
         fixture_allowlist.clone(),
         mutation_metadata,
     )?;
-    let mut guard = RecoveryGuard::armed(store, record);
+    let mut guard = RecoveryGuard::armed(operation, record);
     guard.assert_ownership()?;
     let pre_mutation = capture_current()?;
     let pre_mutation_diff = diff_desktop(&original, &pre_mutation).summary();
@@ -602,8 +696,10 @@ pub fn run_destructive_roundtrip(
         "desktop changed after the recovery snapshot was persisted; no fixture mutation was attempted: {pre_mutation_diff:?}"
     );
 
-    // This is the only normal verification mutation. Revalidate the persisted
-    // claim immediately before granting the stored two-identity capability.
+    // This is the only normal verification mutation. The operation lease has
+    // been held since before capture and remains owned by RecoveryGuard through
+    // automatic recovery/archive/removal. The sealed-record check is additional
+    // corruption detection, not the cross-process mutual-exclusion primitive.
     guard.assert_ownership()?;
     let allowed_identities = fixture_allowlist.into_iter().collect();
     let mutation = restore_snapshot_subset(&swapped, allowed_identities)?;
@@ -660,15 +756,24 @@ pub fn run_destructive_roundtrip(
 
 pub fn recover_last_verification(store: VerificationRecoveryStore) -> Result<RecoverySummary> {
     require_destructive_opt_in()?;
-    let record = store.load_active()?;
-    recover_record(&store, &record, RecoveryStatus::RecoveredByCommand)
+    let operation = VerificationOperation::acquire(store)?;
+    let record = operation.load_active()?;
+    recover_record(&operation, &record, RecoveryStatus::RecoveredByCommand)
 }
 
 struct RecoveryGuard {
-    store: VerificationRecoveryStore,
+    // The operation owns the live exclusive handle. Rust invokes this type's
+    // Drop implementation before dropping its fields, so automatic recovery
+    // below always completes while the lifecycle lease is still held.
+    operation: VerificationOperation,
     record: Option<RecoveryRecord>,
     state: RecoveryGuardState,
+    #[cfg(test)]
+    drop_lease_observer: Option<DropLeaseObserver>,
 }
+
+#[cfg(test)]
+type DropLeaseObserver = Box<dyn FnOnce(&VerificationOperation)>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RecoveryGuardState {
@@ -693,11 +798,13 @@ impl RecoveryGuardState {
 }
 
 impl RecoveryGuard {
-    fn armed(store: VerificationRecoveryStore, record: RecoveryRecord) -> Self {
+    fn armed(operation: VerificationOperation, record: RecoveryRecord) -> Self {
         Self {
-            store,
+            operation,
             record: Some(record),
             state: RecoveryGuardState::Armed,
+            #[cfg(test)]
+            drop_lease_observer: None,
         }
     }
 
@@ -708,7 +815,7 @@ impl RecoveryGuard {
         );
         self.assert_ownership()?;
         self.state = RecoveryGuardState::ManualRecoveryRequired;
-        Ok(self.store.active_path())
+        Ok(self.operation.store.active_path())
     }
 
     fn assert_ownership(&self) -> Result<()> {
@@ -716,7 +823,7 @@ impl RecoveryGuard {
             .record
             .as_ref()
             .context("recovery guard is no longer armed")?;
-        self.store.assert_ownership(record)
+        self.operation.assert_ownership(record)
     }
 
     fn recover_and_complete(&mut self, status: RecoveryStatus) -> Result<RecoverySummary> {
@@ -728,7 +835,7 @@ impl RecoveryGuard {
             .record
             .as_ref()
             .context("recovery guard is no longer armed")?;
-        let summary = recover_record(&self.store, record, status)?;
+        let summary = recover_record(&self.operation, record, status)?;
         self.record = None;
         self.state = RecoveryGuardState::Completed;
         Ok(summary)
@@ -737,20 +844,28 @@ impl RecoveryGuard {
 
 impl Drop for RecoveryGuard {
     fn drop(&mut self) {
+        #[cfg(test)]
+        if let Some(observer) = self.drop_lease_observer.take() {
+            observer(&self.operation);
+        }
         if self.state.drop_action() == RecoveryDropAction::LeaveActive {
             return;
         }
         let Some(record) = self.record.as_ref() else {
             return;
         };
-        match recover_record(&self.store, record, RecoveryStatus::RecoveredAfterFailure) {
+        match recover_record(
+            &self.operation,
+            record,
+            RecoveryStatus::RecoveredAfterFailure,
+        ) {
             Ok(summary) => eprintln!(
                 "DeskAnchor recovery guard restored the original layout; evidence: {}",
                 summary.evidence_path.display()
             ),
             Err(error) => eprintln!(
                 "DeskAnchor recovery guard could not confirm restoration: {error:#}. The active recovery snapshot remains at {}",
-                self.store.active_path().display()
+                self.operation.store.active_path().display()
             ),
         }
     }
@@ -779,18 +894,19 @@ fn verification_failpoint_from_values(
 }
 
 fn recover_record(
-    store: &VerificationRecoveryStore,
+    operation: &VerificationOperation,
     record: &RecoveryRecord,
     status: RecoveryStatus,
 ) -> Result<RecoverySummary> {
-    store.assert_ownership(record)?;
+    operation.assert_ownership(record)?;
     validate_current_fixture_desktop(record)?;
     let current = capture_current()?;
     validate_recovery_preflight(record, &current)?;
 
-    // Recovery is a desktop mutation too. The claim and complete sealed record
-    // must still belong to this run immediately before the fixture-only write.
-    store.assert_ownership(record)?;
+    // Recovery is a desktop mutation too. `operation` holds the exclusive lease
+    // from before load_active through archive/removal; this sealed-record check
+    // additionally rejects out-of-band corruption before the fixture-only write.
+    operation.assert_ownership(record)?;
     let allowed_identities = record.fixture_allowlist.iter().cloned().collect();
     let restore = restore_snapshot_subset(&record.snapshot, allowed_identities)?;
     if status == RecoveryStatus::Verified {
@@ -814,7 +930,7 @@ fn recover_record(
         final_diff.is_exact_match(),
         "original layout failed final full recapture verification: {final_diff:?}"
     );
-    let evidence_path = store.archive_completed(record, status)?;
+    let evidence_path = operation.archive_completed(record, status)?;
     Ok(RecoverySummary {
         restore,
         final_diff,
@@ -1153,7 +1269,7 @@ fn print_diff(label: &str, summary: SnapshotDiffSummary) {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Barrier};
+    use std::sync::{Arc, Barrier, mpsc};
     use std::thread;
 
     use serde_json::Value;
@@ -1283,6 +1399,13 @@ mod tests {
         rewrite_active(store, &value);
     }
 
+    fn is_operation_busy(error: &anyhow::Error) -> bool {
+        matches!(
+            error.downcast_ref::<VerificationRecoveryError>(),
+            Some(VerificationRecoveryError::OperationBusy { .. })
+        )
+    }
+
     #[test]
     fn concurrent_begin_allows_exactly_one_atomic_claim() {
         let temporary = tempdir().expect("create temp directory");
@@ -1319,6 +1442,87 @@ mod tests {
             Some(VerificationRecoveryError::AlreadyActive { .. })
         ));
         assert!(store.load_active().is_ok());
+    }
+
+    #[test]
+    fn recovery_cannot_enter_while_verification_holds_lease_before_mutation() {
+        let temporary = tempdir().expect("create temp directory");
+        let desktop = temporary.path().join("Desktop");
+        create_fixture_files(&desktop);
+        let store = VerificationRecoveryStore::new(temporary.path().join("recovery"));
+        let snapshot = sample_snapshot(&desktop);
+        let operation =
+            VerificationOperation::acquire(store.clone()).expect("acquire verification lease");
+        let record = begin_record(&store, &snapshot, &desktop);
+        let active_before = fs::read(store.active_path()).expect("read active claim");
+        let (result_tx, result_rx) = mpsc::channel();
+        let worker_store = store.clone();
+
+        let worker = thread::spawn(move || {
+            let error = VerificationOperation::acquire(worker_store)
+                .expect_err("concurrent recovery operation must be busy");
+            result_tx
+                .send(is_operation_busy(&error))
+                .expect("report lease result");
+        });
+
+        assert!(result_rx.recv().expect("receive lease result"));
+        worker.join().expect("join recovery contender");
+        assert_eq!(
+            fs::read(store.active_path()).expect("active claim remains"),
+            active_before
+        );
+        assert_eq!(store.load_active().expect("same claim remains"), record);
+        assert!(!store.root().join("records").exists());
+        drop(operation);
+    }
+
+    #[test]
+    fn recovery_lease_prevents_new_claim_during_final_active_removal() {
+        let temporary = tempdir().expect("create temp directory");
+        let desktop = temporary.path().join("Desktop");
+        create_fixture_files(&desktop);
+        let store = VerificationRecoveryStore::new(temporary.path().join("recovery"));
+        let snapshot = sample_snapshot(&desktop);
+        let operation =
+            VerificationOperation::acquire(store.clone()).expect("acquire recovery lease");
+        let old_record = begin_record(&store, &snapshot, &desktop);
+        let (attempt_tx, attempt_rx) = mpsc::channel();
+        let (result_tx, result_rx) = mpsc::channel();
+        let worker_store = store.clone();
+        let worker = thread::spawn(move || {
+            attempt_rx.recv().expect("wait for removal boundary");
+            let error = VerificationOperation::acquire(worker_store)
+                .expect_err("new verification must not enter before old removal");
+            result_tx
+                .send(is_operation_busy(&error))
+                .expect("report lease result");
+        });
+
+        store
+            .archive_completed_with_remove(
+                &old_record,
+                RecoveryStatus::RecoveredByCommand,
+                |path| {
+                    attempt_tx
+                        .send(())
+                        .expect("release contender at removal boundary");
+                    assert!(result_rx.recv().expect("receive lease result"));
+                    assert_eq!(store.load_active().expect("old claim remains"), old_record);
+                    fs::remove_file(path)
+                },
+            )
+            .expect("archive and remove old claim");
+        worker.join().expect("join verification contender");
+        assert!(!store.active_path().exists());
+
+        drop(operation);
+        let next_operation =
+            VerificationOperation::acquire(store.clone()).expect("acquire next operation lease");
+        let new_record = begin_record(&store, &snapshot, &desktop);
+        assert_ne!(new_record.claim(), old_record.claim());
+        assert_eq!(store.load_active().expect("new claim remains"), new_record);
+        drop(next_operation);
     }
 
     #[test]
@@ -1768,15 +1972,50 @@ mod tests {
     }
 
     #[test]
+    fn armed_guard_drop_body_runs_before_operation_lease_is_released() {
+        let temporary = tempdir().expect("create temp directory");
+        let desktop = temporary.path().join("Desktop");
+        create_fixture_files(&desktop);
+        let store = VerificationRecoveryStore::new(temporary.path().join("recovery"));
+        let operation =
+            VerificationOperation::acquire(store.clone()).expect("acquire verification lease");
+        let record = begin_record(&store, &sample_snapshot(&desktop), &desktop);
+        let mut guard = RecoveryGuard::armed(operation, record);
+        let (result_tx, result_rx) = mpsc::channel();
+        let contender_store = store.clone();
+        guard.drop_lease_observer = Some(Box::new(move |_| {
+            let error = VerificationOperation::acquire(contender_store)
+                .expect_err("guard Drop body must still own the operation lease");
+            result_tx
+                .send(is_operation_busy(&error))
+                .expect("report Drop lease observation");
+        }));
+
+        // This pure ordering probe deliberately suppresses the Explorer recovery
+        // branch. It observes the same Drop body before field destruction without
+        // touching the real desktop.
+        assert!(guard.record.take().is_some());
+        drop(guard);
+
+        assert!(result_rx.recv().expect("receive Drop lease observation"));
+        let next_operation = VerificationOperation::acquire(store.clone())
+            .expect("lease is released only after the guard Drop body finishes");
+        assert!(store.active_path().exists());
+        drop(next_operation);
+    }
+
+    #[test]
     fn explicit_manual_recovery_state_disarms_raii_and_keeps_active_record() {
         let temporary = tempdir().expect("create temp directory");
         let desktop = temporary.path().join("Desktop");
         create_fixture_files(&desktop);
         let store = VerificationRecoveryStore::new(temporary.path().join("recovery"));
+        let operation =
+            VerificationOperation::acquire(store.clone()).expect("acquire verification lease");
         let record = begin_record(&store, &sample_snapshot(&desktop), &desktop);
         let active_path = store.active_path();
         {
-            let mut guard = RecoveryGuard::armed(store.clone(), record);
+            let mut guard = RecoveryGuard::armed(operation, record);
             assert_eq!(guard.state, RecoveryGuardState::Armed);
             assert_eq!(
                 guard
@@ -1786,12 +2025,18 @@ mod tests {
             );
             assert_eq!(guard.state, RecoveryGuardState::ManualRecoveryRequired);
             assert!(guard.disarm_for_manual_recovery().is_err());
+            let error = VerificationOperation::acquire(store.clone())
+                .expect_err("manual-recovery guard must retain the lease until drop");
+            assert!(is_operation_busy(&error));
         }
+        let recovery_operation = VerificationOperation::acquire(store.clone())
+            .expect("recovery can acquire lease after failpoint command returns");
         assert!(active_path.exists());
         assert!(!store.root().join("records").exists());
         assert_eq!(
             store.load_active().expect("active recovery remains").status,
             RecoveryStatus::Active
         );
+        drop(recovery_operation);
     }
 }

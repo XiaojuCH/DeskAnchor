@@ -30,8 +30,9 @@ The destructive integration test has all of these gates:
 1. Rust `#[ignore]`, so normal `cargo test` cannot execute it.
 2. `DESKANCHOR_DESTRUCTIVE_TESTS=1`, checked before desktop capture or mutation.
 3. Two exact, unique fixtures at distinct positions.
-4. An atomic, cross-process, no-replace claim on the fixed active-record path.
-5. A complete recovery record that is flushed, read back, integrity-checked, and ownership-checked before mutation.
+4. A transient cross-process operation lease held across the entire verification/recovery lifecycle.
+5. An atomic, cross-process, no-replace claim on the fixed active-record path.
+6. A complete recovery record that is flushed, read back, integrity-checked, and ownership-checked before mutation.
 
 The optional recovery failpoint adds another exact gate: `DESKANCHOR_VERIFICATION_FAILPOINT` must equal `after-mutation`. It is ignored when absent, unknown values are rejected before capture, and it cannot bypass the destructive opt-in.
 
@@ -42,7 +43,11 @@ Recovery data is local and contains private desktop names/identities:
 %LOCALAPPDATA%\DeskAnchor\verification\records\*.json
 ```
 
-The active file is created directly with no-replace semantics. This removes the `exists`/replace-capable-rename race: concurrent runs cannot both own the path. If a process fails while writing the record, the partial file remains as a fail-closed claim, no mutation is allowed, and later runs cannot overwrite it. Do not delete an existing `active-recovery.json` to bypass the guard.
+The same directory also contains `operation.lock`, but its existence does not mean an operation is active and it is not a recovery record. Each supported `verify-destructive` or `recover-last-verification` invocation opens that path with a live Windows file handle whose share mode permits no competing open. It holds the handle from before recovery-store access through fixture mutation/recovery, evidence archive, and active-claim removal. A contender fails immediately with `VerificationRecoveryError::OperationBusy`; it does not read or modify the active claim. Normal return or unwind releases the handle through RAII; abort, kill, or process crash releases it through Windows process-handle cleanup, allowing a later command to acquire it. No process waits indefinitely.
+
+The operation lease and `active-recovery.json` have different lifetimes. The lease is transient mutual exclusion and is released when a command ends. The active claim is durable recovery evidence and deliberately survives the controlled failpoint or a process failure after it was persisted.
+
+The active file is created directly with no-replace semantics while the operation lease is held. This removes the `exists`/replace-capable-rename race: concurrent runs cannot both own the path. Because every supported command retains the same lease through ownership validation, mutation, archive, and removal, another DeskAnchor process cannot clear or replace the claim inside either check-to-mutation or check-to-removal critical section. If a process fails while writing the record, the partial file remains as a fail-closed claim, no mutation was authorized, and later runs cannot overwrite it. Preserve and investigate a partial record manually; do not delete an existing `active-recovery.json` merely to bypass the guard. A safe operator workflow for archiving and clearing confirmed partial claims remains a future follow-up rather than an automatic deletion command.
 
 The format-v2 active record binds the internally generated verification ID and ownership token to the original snapshot, exact fixture identity allowlist, expected display configuration, fixture Desktop path, and intended swap targets. A SHA-256 digest over this canonical structured payload detects accidental corruption and ordinary manual edits before recovery. The digest is deliberately not presented as protection from a malicious process running with the same Windows-user permissions: such a process can modify the executable, record, and digest together.
 
@@ -87,6 +92,8 @@ C:\DeskAnchorTest\deskanchor-verify.exe verify-destructive
 
 The harness still persists the complete active recovery record, swaps only the two fixtures, waits for settled mutation, and confirms the full mutated diff. It then transitions the RAII guard to an explicit manual-recovery state and exits normally with `RESULT: RECOVERY_REQUIRED`. It does not panic or simulate a process crash. The fixture positions and `active-recovery.json` are intentionally left unchanged so the persistent recovery path can be tested reproducibly.
 
+The verification operation lease remains live through that transition and through `RecoveryGuard::drop`. Because `ManualRecoveryRequired` intentionally disables automatic recovery, the guard leaves the active claim untouched and then releases the transient lease as the command returns. The later recovery command acquires a new lease before loading the same durable claim and retains it until recovery, archive, and active removal finish.
+
 At this point, do not move either fixture, change the display configuration, create/delete/rename desktop items, start another destructive run, or delete `active-recovery.json`. No new completion evidence should exist yet; the active record remains in status `active`.
 
 Recover with the existing implementation:
@@ -114,6 +121,8 @@ cargo run -p deskanchor-core --bin deskanchor-verify -- recover-last-verificatio
 
 The command validates the sealed record and semantic invariants, verifies that both stored fixture identities are uniquely resolvable regular files at the stored/current Desktop fixture paths, and confirms that every non-fixture item still exactly matches the original snapshot. It then uses fixture-subset restore with settle verification, performs a final complete diff, writes a `recovered-by-command` evidence record, revalidates ownership, and only then removes the active claim.
 
+`NothingToRestore` remains a valid recovery-command result when a complete active record survived a crash after persistence but before fixture mutation, or when an ordinary pre-mutation failure left the original exact layout. The lifecycle lease guarantees that this no-op recovery cannot run concurrently with a still-live verifier; after exact full-diff verification it may safely archive and clear the durable claim.
+
 If any non-fixture item moved, disappeared, appeared, or became ambiguous, recovery reports external desktop drift and performs no restore. A display mismatch, unresolved fixture, integrity failure, ownership mismatch, archive failure, active-claim removal failure, or non-exact final diff also fails closed and leaves the active evidence in place. Recovery never moves a non-fixture icon.
 
 The same binary can run the harness directly with `verify-destructive`, but the ignored integration-test command is preferred for recorded matrix runs because it preserves both explicit safety gates in the invocation.
@@ -128,3 +137,5 @@ On the same isolated Windows 11 Pro 23H2 build 22631 AMD64 VM with one 2283×127
 - The post-remediation `after-mutation` run passed mutation, immediate readback, and settle verification in three attempts over 323 ms with an exact mutated diff, then returned `RECOVERY_REQUIRED`. A separate recovery invocation returned `Settled`, passed settle verification in three attempts over 324 ms, produced an exact final full diff, archived `verification-20260827T1703397294356Z-6904-fb42c270bed24db19aef7719b51a4ae7-recovered-by-command.json`, cleared the active claim, and returned `RECOVERED`.
 
 These post-remediation regression PASS results confirm that the normal baseline and persistent-recovery workflows still function after the atomic-claim, format-v2 integrity, strict-fixture, and fixture-only recovery changes. They do not independently construct or prove every B1/B2/B3 boundary; those safety properties remain primarily covered by the dedicated unit and non-destructive regression tests. No support inference is made for Windows 10, other DPI values, physical or multiple displays, or other untested Explorer configurations.
+
+These binaries predate the later cross-process operation lease, so the PASS results remain evidence for commit `28097628997e4183cbda7b0c2d8c3eab774437a7` rather than the current HEAD. Before the operation-lease HEAD is considered ready, rerun a small isolated-VM baseline round-trip and one `after-mutation` plus `recover-last-verification` smoke. The lease's concurrency boundary should continue to be proven by deterministic non-destructive tests and code review, not by a timing-dependent VM race experiment.
