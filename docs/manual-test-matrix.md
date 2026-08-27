@@ -20,11 +20,13 @@ This is a test plan, not a claim of support. Change `TODO` only after running th
 
 For every run, record the Windows edition/build, display identities/topology, scale, Explorer settings, command, console summary, and retained recovery evidence path. A failure remains a result; do not rerun until the active recovery guard is resolved.
 
+The two existing PASS rows are retained as historical evidence. They were produced by the pre-remediation implementation and do not validate the current format-v2 atomic-claim, integrity, strict-fixture, or fixture-only recovery paths. Before merge, the current binary requires targeted isolated-VM regression runs for both the baseline round-trip and the after-mutation plus cross-process recovery scenario. Record the new evidence without deleting or rewriting the historical records.
+
 ## Recorded Phase 0.5 baseline evidence
 
 The fixed-fixture harness completed on an isolated Windows 11 Pro 23H2 build 22631 VM with one 2283×1278 virtual display at 100% scale and six desktop items. Fixture A started at `(698, 202)` and fixture B at `(1914, 202)`. Mutation and settle verification passed; recovery settled in three observations over 323 ms; the final six-item diff was exact; completion evidence was archived as `verification-20260827T1059529044508Z-10848-verified.json`; and the active marker no longer existed after the run.
 
-This is evidence for only the first matrix row. It does not imply coverage for other DPI values, Explorer behavior changes, physical/multiple displays, RDP, or Windows 10.
+This is historical evidence for only the first matrix row and the pre-remediation implementation. It does not imply coverage for the current recovery implementation, other DPI values, Explorer behavior changes, physical/multiple displays, RDP, or Windows 10.
 
 ## Recorded Phase 0.5 persistent recovery evidence
 
@@ -32,7 +34,7 @@ The `after-mutation` failpoint and cross-process recovery command completed on t
 
 `recover-last-verification` then settled in three attempts over 324 ms. Its final six-item diff was exact with six unchanged and zero moved, missing, new, or ambiguous items. Recovery evidence was archived as `verification-20260827T1152321625746Z-5368-recovered-by-command.json`, and the active marker changed from present to absent.
 
-This is evidence only for the second matrix row and for the controlled cross-process recovery workflow. It does not reproduce every possible crash or power-loss timing.
+This is historical evidence only for the second matrix row and the pre-remediation controlled cross-process recovery workflow. It does not validate the remediated implementation and does not reproduce every possible crash or power-loss timing.
 
 ## Historical Phase 0 evidence
 

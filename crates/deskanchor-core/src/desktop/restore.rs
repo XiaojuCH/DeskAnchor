@@ -247,6 +247,7 @@ fn settle_restore(snapshot: &Snapshot, policy: RestoreSettlePolicy, result: &mut
                 result.verification.settle = VerificationStatus::Failed;
                 result.verification.attempts = tracker.attempts();
                 result.verification.elapsed_ms = elapsed_millis(started);
+                result.verification.final_diff = None;
                 result.verification.error = Some(format!(
                     "failed to recapture the complete desktop during settle verification: {error:#}"
                 ));

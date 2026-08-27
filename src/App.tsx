@@ -23,7 +23,7 @@ interface SnapshotDiffSummary {
   ambiguous: number;
 }
 
-interface RestoreResult {
+export interface RestoreResult {
   outcome:
     | "settled"
     | "nothingToRestore"
@@ -51,7 +51,7 @@ interface RestoreResult {
   };
 }
 
-function restoreResultMessage(result: RestoreResult): string {
+export function restoreResultMessage(result: RestoreResult): string {
   switch (result.outcome) {
     case "settled":
       return `Restored ${result.restored} and settled after ${result.verification.attempts} full verification capture(s).`;
@@ -66,11 +66,14 @@ function restoreResultMessage(result: RestoreResult): string {
     case "immediateVerificationFailed":
       return `Restore failed immediate position readback (${result.failed.length} item failure(s)).`;
     case "settleVerificationFailed": {
+      if (result.verification.error !== null) {
+        return `Restore verification capture failed: ${result.verification.error}`;
+      }
       const remaining = result.verification.finalDiff;
       const detail = remaining === null
-        ? result.verification.error ?? "complete desktop recapture failed"
+        ? "complete desktop recapture failed"
         : `remaining moved ${remaining.moved} · missing ${remaining.missing} · new ${remaining.new} · ambiguous ${remaining.ambiguous}`;
-      return `Restore did not settle before the deadline: ${detail}.`;
+      return `Restore did not settle within the observation window: ${detail}.`;
     }
   }
 }

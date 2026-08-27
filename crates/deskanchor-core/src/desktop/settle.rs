@@ -70,6 +70,11 @@ impl SettleTracker {
         summary: SnapshotDiffSummary,
     ) -> SettleDecision {
         self.attempts = self.attempts.saturating_add(1);
+        // An observation completed at or after the polling deadline is too
+        // late to establish success, even if its diff is exact.
+        if elapsed_ms >= self.policy.deadline_ms {
+            return SettleDecision::DeadlineReached;
+        }
         if summary.is_exact_match() {
             self.consecutive_stable = self.consecutive_stable.saturating_add(1);
         } else {
@@ -78,9 +83,6 @@ impl SettleTracker {
 
         if self.consecutive_stable >= self.policy.required_stable_observations {
             return SettleDecision::Settled;
-        }
-        if elapsed_ms >= self.policy.deadline_ms {
-            return SettleDecision::DeadlineReached;
         }
 
         SettleDecision::RetryAfter {
@@ -179,6 +181,51 @@ mod tests {
     }
 
     #[test]
+    fn drift_reset_can_still_settle_after_enough_later_observations() {
+        let mut tracker = SettleTracker::new(policy(2));
+        let _ = tracker.observe(0, summary(0, 0, 0));
+        let _ = tracker.observe(100, summary(1, 0, 0));
+        assert_eq!(tracker.consecutive_stable(), 0);
+        assert!(matches!(
+            tracker.observe(200, summary(0, 0, 0)),
+            SettleDecision::RetryAfter { .. }
+        ));
+        assert_eq!(
+            tracker.observe(300, summary(0, 0, 0)),
+            SettleDecision::Settled
+        );
+    }
+
+    #[test]
+    fn exact_observation_just_before_deadline_can_settle() {
+        let mut tracker = SettleTracker::new(policy(1));
+        assert_eq!(
+            tracker.observe(499, summary(0, 0, 0)),
+            SettleDecision::Settled
+        );
+    }
+
+    #[test]
+    fn exact_observation_at_deadline_times_out() {
+        let mut tracker = SettleTracker::new(policy(1));
+        assert_eq!(
+            tracker.observe(500, summary(0, 0, 0)),
+            SettleDecision::DeadlineReached
+        );
+        assert_eq!(tracker.consecutive_stable(), 0);
+    }
+
+    #[test]
+    fn exact_observation_after_deadline_times_out() {
+        let mut tracker = SettleTracker::new(policy(1));
+        assert_eq!(
+            tracker.observe(501, summary(0, 0, 0)),
+            SettleDecision::DeadlineReached
+        );
+        assert_eq!(tracker.consecutive_stable(), 0);
+    }
+
+    #[test]
     fn missing_or_new_items_never_count_as_an_exact_layout() {
         let mut tracker = SettleTracker::new(policy(1));
         assert!(matches!(
@@ -204,6 +251,20 @@ mod tests {
             tracker.observe(500, mismatched),
             SettleDecision::DeadlineReached
         );
+    }
+
+    #[test]
+    fn ambiguous_items_reset_stability_and_are_reported_as_non_exact() {
+        let mut tracker = SettleTracker::new(policy(2));
+        let _ = tracker.observe(0, summary(0, 0, 0));
+        let mut ambiguous = summary(0, 0, 0);
+        ambiguous.ambiguous = 2;
+        assert!(matches!(
+            tracker.observe(100, ambiguous),
+            SettleDecision::RetryAfter { .. }
+        ));
+        assert_eq!(tracker.consecutive_stable(), 0);
+        assert!(!ambiguous.is_exact_match());
     }
 
     #[test]

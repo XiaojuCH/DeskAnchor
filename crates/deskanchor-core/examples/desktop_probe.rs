@@ -2,8 +2,8 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
-use deskanchor_core::desktop::{capture_current, restore_snapshot};
+use anyhow::{Context, Result, bail, ensure};
+use deskanchor_core::desktop::{RestoreOutcome, capture_current, restore_snapshot};
 use deskanchor_core::snapshot::{Snapshot, diff_desktop};
 
 fn main() -> Result<()> {
@@ -53,9 +53,15 @@ fn diff(path: &Path) -> Result<()> {
 
 fn restore(path: &Path) -> Result<()> {
     let snapshot = read_snapshot(path)?;
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&restore_snapshot(&snapshot)?)?
+    let result = restore_snapshot(&snapshot)?;
+    println!("{}", serde_json::to_string_pretty(&result)?);
+    ensure!(
+        matches!(
+            result.outcome,
+            RestoreOutcome::Settled | RestoreOutcome::NothingToRestore
+        ),
+        "restore did not complete successfully: {:?}",
+        result.outcome
     );
     Ok(())
 }
