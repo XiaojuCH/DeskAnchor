@@ -24,6 +24,14 @@ interface SnapshotDiffSummary {
 }
 
 interface RestoreResult {
+  outcome:
+    | "settled"
+    | "nothingToRestore"
+    | "unresolvedItems"
+    | "blockedDisplayMismatch"
+    | "shellPositioningFailed"
+    | "immediateVerificationFailed"
+    | "settleVerificationFailed";
   restored: number;
   unchanged: number;
   skippedMissing: number;
@@ -31,6 +39,40 @@ interface RestoreResult {
   newItems: number;
   failed: Array<{ displayName: string; reason: string }>;
   blockedDisplayMismatch: boolean;
+  verification: {
+    immediate: "notRun" | "notRequired" | "passed" | "failed";
+    settle: "notRun" | "notRequired" | "passed" | "failed";
+    attempts: number;
+    elapsedMs: number;
+    stableObservations: number;
+    requiredStableObservations: number;
+    finalDiff: SnapshotDiffSummary | null;
+    error: string | null;
+  };
+}
+
+function restoreResultMessage(result: RestoreResult): string {
+  switch (result.outcome) {
+    case "settled":
+      return `Restored ${result.restored} and settled after ${result.verification.attempts} full verification capture(s).`;
+    case "nothingToRestore":
+      return "Nothing to restore: the desktop already exactly matches this snapshot.";
+    case "blockedDisplayMismatch":
+      return "Restore blocked: the current display configuration differs from the snapshot.";
+    case "unresolvedItems":
+      return `Restore incomplete: missing ${result.skippedMissing} · new ${result.newItems} · ambiguous ${result.skippedAmbiguous}.`;
+    case "shellPositioningFailed":
+      return `Restore failed during Shell positioning (${result.failed.length} item failure(s)).`;
+    case "immediateVerificationFailed":
+      return `Restore failed immediate position readback (${result.failed.length} item failure(s)).`;
+    case "settleVerificationFailed": {
+      const remaining = result.verification.finalDiff;
+      const detail = remaining === null
+        ? result.verification.error ?? "complete desktop recapture failed"
+        : `remaining moved ${remaining.moved} · missing ${remaining.missing} · new ${remaining.new} · ambiguous ${remaining.ambiguous}`;
+      return `Restore did not settle before the deadline: ${detail}.`;
+    }
+  }
 }
 
 function errorMessage(error: unknown): string {
@@ -89,10 +131,7 @@ export default function App() {
     }
     void run(async () => {
       const result = await invoke<RestoreResult>("restore_snapshot", { id });
-      if (result.blockedDisplayMismatch) {
-        return "Restore blocked: the current display configuration differs from the snapshot.";
-      }
-      return `Restored ${result.restored} · unchanged ${result.unchanged} · missing ${result.skippedMissing} · ambiguous ${result.skippedAmbiguous} · failed ${result.failed.length}`;
+      return restoreResultMessage(result);
     });
   }
 

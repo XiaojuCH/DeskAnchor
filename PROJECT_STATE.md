@@ -2,32 +2,36 @@
 
 ## Current phase
 
-Phase 0 — Desktop API feasibility and project bootstrap.
+Phase 0.5 — Validation hardening. No product feature expansion.
 
 ## Completed
 
-- Rust workspace with a reusable `deskanchor-core` crate and a thin Tauri v2 application.
-- Supported Shell COM desktop discovery and icon enumeration using `IShellWindows` and `IFolderView`.
-- Version 1 JSON snapshot model, validation, local atomic storage, display signature, pure diff/matching, guarded restore, and minimal React UI.
-- Windows display capture through CCD (`QueryDisplayConfig`) with a GDI fallback.
-- Unit tests, an ignored real-Windows capture test, developer probe, internal documentation, and Windows CI definition.
+- Phase 0 reusable Rust core, Shell desktop discovery, versioned local snapshots, diff/matching, guarded restore, thin Tauri commands, and minimal React UI.
+- Bounded settle verification with configurable polling interval, total deadline, and required consecutive exact full-desktop observations.
+- Explicit restore outcomes for Shell positioning failure, immediate verification failure, later settle failure, settled success, display blocking, unresolved items, and nothing-to-restore.
+- Developer-only destructive verification harness using two fixed, pre-created fixtures and no random-item fallback.
+- Persistent recovery guard written before mutation, RAII recovery for unwind/ordinary error, durable crash marker, retained completion evidence, and `recover-last-verification` command.
+- Manual Windows verification matrix and VM operating instructions.
 
 ## Verified
 
-- Real Explorer read-only capture on Windows 11 24H2 (build 26100): identity and position were obtained for every visible desktop item in the test environment.
-- Guarded real Save → Move → Restore on the same machine: two ordinary filesystem icons were swapped through the supported Shell API, the changed positions survived recapture, and the original snapshot restored every icon to its starting coordinate. The recovery snapshot was written before mutation and retained locally. The final DPI-unaware Shell worker passed from both a default host and a simulated Per-Monitor V2 host.
-- Pure Rust snapshot, validation, diff, matching, storage, and monitor-signature tests.
-- Frontend checks and an optimized Tauri application build without an installer bundle.
+- Pure settle-state behavior: immediate success, retry success, deadline failure, later drift, display mismatch, and missing/new items.
+- Snapshot/diff/matching/storage and recovery-record persistence/archive logic through non-destructive tests.
+- Host validation passed: Rust formatting, workspace clippy with warnings denied, 20 Rust tests, frontend lint/typecheck/test/build, and the no-bundle Tauri production build.
+- `cargo test --workspace` reported both real-Explorer integration tests as ignored. A separate non-destructive guard preflight confirmed that opt-in value `0` is rejected before capture or mutation.
+- Phase 0 historical Windows 11 feasibility evidence remains documented separately.
+
+The Phase 0.5 destructive verification harness is implemented but awaits execution in an isolated Windows 11 VM. It was not run on the development host.
 
 ## Known limitations
 
-- Identity uses the Shell desktop-absolute parsing name. Rename/move changes filesystem identity, and exceptional third-party namespace extensions may not provide a durable parsing name.
-- v0.1 blocks restore when the normalized display signature differs; it does not remap coordinates across monitor changes.
-- Explorer restart during an operation can invalidate COM interfaces. Each operation reacquires the desktop view, but automatic retry is not implemented.
-- Automatic Arrange or Align to Grid settings may change/ignore requested positions.
-- CCD is unavailable in some remote/non-console sessions; fallback monitor identity then uses the less stable GDI source name.
-- The Tauri window was production-built, but its visible button flow was not manually exercised; the equivalent core restore path was exercised under a simulated Per-Monitor V2 host process.
+- The new harness has not yet been exercised against a real Explorer desktop; its destructive path and RAII recovery behavior await VM validation.
+- A process kill, abort, VM crash, or power loss cannot execute RAII recovery. The persistent active record enables a later explicit recovery attempt but cannot guarantee the external environment is unchanged.
+- Settle success is bounded evidence, not proof that Explorer can never rearrange after the deadline. Default timings require matrix validation across DPI, Explorer settings, and Windows builds.
+- Recovery blocks on a changed display signature or any missing, new, ambiguous, or moved item that prevents an exact final diff.
+- Fixture preparation is manual by design. Duplicate fixture basenames across merged desktop locations are rejected.
+- Windows 10, multi-display, mixed-DPI, Explorer restart, RDP, Auto Arrange, and Align to Grid remain unverified.
 
 ## Next step
 
-Repeat the guarded two-icon round-trip verification on a small set of representative Windows 10/11 machines and record the behavior of Explorer settings (Auto Arrange/Align to Grid), DPI combinations, Explorer restart, and multi-monitor layouts before expanding Phase 1 UX.
+Run the destructive fixed-fixture round-trip in the existing isolated Windows 11 VM, retain its console/recovery evidence, and update only the corresponding manual-test-matrix row from the observed result.

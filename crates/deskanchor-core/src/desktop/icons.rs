@@ -19,15 +19,17 @@ pub(crate) struct LiveIcon {
 }
 
 pub fn capture_current() -> Result<DesktopState> {
-    on_shell_sta(|| {
-        let desktop = DesktopFolderView::open()?;
-        let icons = enumerate_icons(&desktop)?
-            .into_iter()
-            .map(|icon| icon.model)
-            .collect();
-        let display = DisplayConfiguration::new(capture_monitors()?);
-        Ok(DesktopState { display, icons })
-    })
+    on_shell_sta(capture_current_sta)
+}
+
+pub(crate) fn capture_current_sta() -> Result<DesktopState> {
+    let desktop = DesktopFolderView::open()?;
+    let icons = enumerate_icons(&desktop)?
+        .into_iter()
+        .map(|icon| icon.model)
+        .collect();
+    let display = DisplayConfiguration::new(capture_monitors()?);
+    Ok(DesktopState { display, icons })
 }
 
 pub(crate) fn enumerate_icons(desktop: &DesktopFolderView) -> Result<Vec<LiveIcon>> {

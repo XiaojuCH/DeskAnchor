@@ -16,7 +16,8 @@ The reusable core keeps a future CLI possible without moving Explorer logic into
 - `desktop/discovery.rs`: short-lived COM STA and acquisition of the current Explorer `IFolderView`/`IShellFolder`.
 - `desktop/icons.rs`: current PIDL enumeration, parsing/display names, and positions.
 - `desktop/monitors.rs`: CCD/GDI monitor configuration, work area, and display-scale capture.
-- `desktop/restore.rs`: guarded identity matching, `SelectAndPositionItems`, and post-write verification.
+- `desktop/restore.rs`: guarded identity matching, `SelectAndPositionItems`, immediate readback, and bounded settle verification.
+- `desktop/settle.rs`: pure polling/deadline state machine and settle policy.
 - `snapshot/model.rs`: schema v1 and validation.
 - `snapshot/diff.rs`: pure identity grouping and change classification.
 - `snapshot/storage.rs`: local, pretty JSON with same-directory temporary write and atomic rename.
@@ -25,7 +26,13 @@ The reusable core keeps a future CLI possible without moving Explorer logic into
 
 Capture reacquires the Explorer desktop view on a dedicated COM STA, enumerates child PIDLs, converts each to an `IShellItem`, reads names and coordinates, then drops all COM/PIDL resources before returning a plain Rust `DesktopState`.
 
-Restore validates the snapshot, reacquires and re-enumerates the current desktop, computes the pure diff, and blocks if the display signature differs. Only moved items with exactly one snapshot identity and one current identity are sent to Explorer. Missing, new, and ambiguous items are counted but not touched. After the supported batch positioning call succeeds, every moved item is read back and counted as restored only when its coordinate matches.
+Restore validates the snapshot, reacquires and re-enumerates the current desktop, computes the pure diff, and blocks if the display signature differs. Only moved items with exactly one snapshot identity and one current identity are sent to Explorer. Missing, new, and ambiguous items are counted but not touched.
+
+After the supported batch positioning call succeeds, every moved PIDL is read back immediately. If that passes, restore repeatedly reacquires a fresh desktop view and performs a complete capture/diff until the layout is exactly equal for the configured number of consecutive observations or the deadline expires. The default is a 150 ms polling interval, a 2 second deadline, and three consecutive exact observations. Missing, new, ambiguous, moved, or display-mismatched state resets stability. `RestoreOutcome::Settled` is the only successful moved-layout outcome; callers must not infer success from the `restored` count.
+
+## Developer verification boundary
+
+`verification.rs` and the `deskanchor-verify` binary are developer-only tooling and are not reachable from Tauri IPC or the production UI. The destructive integration test is ignored, requires `DESKANCHOR_DESTRUCTIVE_TESTS=1`, and only swaps the positions of two pre-created, uniquely identified fixture files. A complete active recovery record is atomically persisted before mutation. RAII attempts recovery on unwind or ordinary error; a durable active marker covers process termination and blocks later runs until the recovery command succeeds. See `docs/verification.md`.
 
 ## Threading and unsafe code
 

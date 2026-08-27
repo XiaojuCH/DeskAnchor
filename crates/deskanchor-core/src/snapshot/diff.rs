@@ -54,6 +54,17 @@ impl SnapshotDiff {
     }
 }
 
+impl SnapshotDiffSummary {
+    /// Returns true only when the current desktop exactly matches the snapshot.
+    pub fn is_exact_match(self) -> bool {
+        self.display_matches
+            && self.moved == 0
+            && self.missing == 0
+            && self.new == 0
+            && self.ambiguous == 0
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotDiffSummary {
@@ -195,5 +206,24 @@ mod tests {
         assert!(diff.moved.is_empty());
         assert_eq!(diff.ambiguous.len(), 1);
         assert_eq!(diff.ambiguous[0].current_occurrences, 2);
+    }
+
+    #[test]
+    fn exact_match_requires_no_unresolved_items() {
+        let mut summary = SnapshotDiffSummary {
+            display_matches: true,
+            unchanged: 3,
+            moved: 0,
+            missing: 0,
+            new: 0,
+            ambiguous: 0,
+        };
+        assert!(summary.is_exact_match());
+
+        summary.new = 1;
+        assert!(!summary.is_exact_match());
+        summary.new = 0;
+        summary.missing = 1;
+        assert!(!summary.is_exact_match());
     }
 }
