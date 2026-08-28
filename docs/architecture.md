@@ -20,11 +20,15 @@ The reusable core keeps a future CLI possible without moving Explorer logic into
 - `desktop/settle.rs`: pure polling/deadline state machine and settle policy.
 - `snapshot/model.rs`: schema v1 and validation.
 - `snapshot/diff.rs`: pure identity grouping and change classification.
-- `snapshot/storage.rs`: local, pretty JSON with same-directory temporary write and atomic rename.
+- `snapshot/storage.rs`: local, pretty JSON; a single canonical product layout plus retained legacy timestamp APIs.
 
 ## Operation flow
 
 Capture reacquires the Explorer desktop view on a dedicated COM STA, enumerates child PIDLs, converts each to an `IShellItem`, reads names and coordinates, then drops all COM/PIDL resources before returning a plain Rust `DesktopState`.
+
+Phase 1A exposes one product-visible Saved Layout at `%LOCALAPPDATA%\DeskAnchor\snapshots\saved-layout.json`. Save validates and serializes the complete snapshot before opening a unique same-directory temporary file, writes and flushes that file, then uses `MoveFileExW` with replace-existing and write-through flags. It never deletes the old canonical file before publication, so a failed Windows replacement leaves the previous layout intact. Legacy timestamp files are not migrated, deleted, or enumerated by the product workflow.
+
+The production Phase 1A IPC commands are ID-less: get the Saved Layout summary, capture and replace it, and compare it with a fresh desktop capture. The React view models no-layout, exact, changed, display-mismatched, capture-failed, and saved-layout-unavailable states. A monotonically increasing request generation prevents an older startup or Compare response from overwriting newer state. Phase 1A has no Restore entry in the production UI; the existing restore core and IPC remain unchanged for Phase 1B.
 
 Restore validates the snapshot, reacquires and re-enumerates the current desktop, computes the pure diff, and blocks if the display signature differs. Only moved items with exactly one snapshot identity and one current identity are sent to Explorer. Missing, new, and ambiguous items are counted but not touched.
 

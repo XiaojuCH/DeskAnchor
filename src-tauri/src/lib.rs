@@ -1,6 +1,6 @@
 use deskanchor_core::desktop::{RestoreResult, capture_current, restore_snapshot as restore};
 use deskanchor_core::snapshot::{
-    Snapshot, SnapshotDiffSummary, SnapshotStore, StoredSnapshot, diff_desktop,
+    SavedLayoutSummary, Snapshot, SnapshotDiffSummary, SnapshotStore, StoredSnapshot, diff_desktop,
 };
 use serde::Serialize;
 use tauri::State;
@@ -16,6 +16,14 @@ struct CurrentDesktopSummary {
     icon_count: usize,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SavedLayoutComparison {
+    saved_layout: SavedLayoutSummary,
+    current_desktop: CurrentDesktopSummary,
+    diff: SnapshotDiffSummary,
+}
+
 type CommandResult<T> = Result<T, String>;
 
 #[tauri::command]
@@ -25,6 +33,51 @@ async fn current_desktop() -> CommandResult<CurrentDesktopSummary> {
         Ok(CurrentDesktopSummary {
             monitor_count: desktop.display.monitors.len(),
             icon_count: desktop.icons.len(),
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+async fn get_saved_layout(state: State<'_, AppState>) -> CommandResult<Option<SavedLayoutSummary>> {
+    let store = state.snapshots.clone();
+    run_blocking(move || {
+        store
+            .load_saved_layout()
+            .map(|snapshot| snapshot.as_ref().map(SavedLayoutSummary::from_snapshot))
+            .map_err(command_error)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn save_saved_layout(state: State<'_, AppState>) -> CommandResult<SavedLayoutSummary> {
+    let store = state.snapshots.clone();
+    run_blocking(move || {
+        let desktop = capture_current().map_err(command_error)?;
+        let snapshot = Snapshot::capture(desktop).map_err(command_error)?;
+        store.replace_saved_layout(&snapshot).map_err(command_error)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn compare_saved_layout(state: State<'_, AppState>) -> CommandResult<SavedLayoutComparison> {
+    let store = state.snapshots.clone();
+    run_blocking(move || {
+        let snapshot = store
+            .load_saved_layout()
+            .map_err(command_error)?
+            .ok_or_else(|| "no saved layout exists".to_string())?;
+        let current = capture_current().map_err(command_error)?;
+        let diff = diff_desktop(&snapshot, &current).summary();
+        Ok(SavedLayoutComparison {
+            saved_layout: SavedLayoutSummary::from_snapshot(&snapshot),
+            current_desktop: CurrentDesktopSummary {
+                monitor_count: current.display.monitors.len(),
+                icon_count: current.icons.len(),
+            },
+            diff,
         })
     })
     .await
@@ -91,6 +144,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .manage(AppState { snapshots })
         .invoke_handler(tauri::generate_handler![
             current_desktop,
+            get_saved_layout,
+            save_saved_layout,
+            compare_saved_layout,
             save_snapshot,
             list_snapshots,
             compare_snapshot,

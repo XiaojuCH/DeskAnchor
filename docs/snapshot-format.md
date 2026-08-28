@@ -1,6 +1,8 @@
 # Snapshot format v1
 
-Snapshots are UTF-8, pretty-printed JSON stored by default in `%LOCALAPPDATA%\DeskAnchor\snapshots`. Writes use a temporary file in that directory, flush it, and rename it into place. The application has no upload or telemetry path.
+Snapshots are UTF-8, pretty-printed JSON stored by default in `%LOCALAPPDATA%\DeskAnchor\snapshots`. The Phase 1 product has one canonical Saved Layout at `saved-layout.json`. A replacement is fully validated and serialized, written to a unique temporary file in the same directory, flushed, and published on Windows with a replace-existing, write-through move. The old canonical file is never deleted first, so publication failure does not discard it. The application has no upload or telemetry path.
+
+Phase 0 timestamp-based `snapshot-*.json` files may remain in the same directory. Phase 1 does not migrate, delete, enumerate, or present them as product history; canonical loading reads only `saved-layout.json`.
 
 Representative shape:
 
