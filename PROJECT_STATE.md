@@ -2,7 +2,7 @@
 
 ## Current phase
 
-Phase 0.5C — Close the final cross-process verification lifecycle blocker in Draft PR #1. No product feature expansion.
+Phase 0.5C — Record operation-lease VM smoke evidence for Draft PR #1. No product feature expansion.
 
 ## Completed
 
@@ -18,6 +18,7 @@ Phase 0.5C — Close the final cross-process verification lifecycle blocker in D
 - Developer-only `after-mutation` controlled recovery failpoint. It requires both explicit environment gates, disarms RAII only after mutation settles, leaves the active recovery record in place, and returns `RECOVERY_REQUIRED` without crashing the process.
 - Manual Windows verification matrix, VM instructions, the first Phase 0.5 baseline evidence record, and isolated-VM persistent recovery evidence.
 - Targeted post-remediation baseline and persistent-recovery regression evidence for the binary built from commit `28097628997e4183cbda7b0c2d8c3eab774437a7`.
+- Operation-lease baseline and persistent-recovery smoke evidence for the binary built from commit `9a312c6649369b6dad559b0c4c2fa312dc4c3109`.
 
 ## Verified
 
@@ -26,15 +27,20 @@ Phase 0.5C — Close the final cross-process verification lifecycle blocker in D
 - Post-remediation binary provenance: the host-built and VM-executed `deskanchor-verify.exe` files were confirmed to share SHA-256 `7870B9ADAEFB08A3CD1C5389934C778C1053096F019D5218727FDE471999C926` and correspond to commit `28097628997e4183cbda7b0c2d8c3eab774437a7`.
 - Post-remediation baseline regression PASS: mutation, immediate restore, and settle verification passed in three attempts over 323 ms; the final full diff contained six unchanged and zero moved/missing/new/ambiguous items; evidence was archived as `verification-20260827T1703128240159Z-10580-b1c14ad04f2d4070b99df1c36b850556-verified.json`; and `active-recovery.json` was absent afterward.
 - Post-remediation persistent-recovery regression PASS: the controlled mutation passed immediate readback and settle verification in three attempts over 323 ms with an exact mutated diff, then returned `RECOVERY_REQUIRED`. A separate `recover-last-verification` invocation returned `Settled`, passed settle verification in three attempts over 324 ms, produced an exact six-item final diff, archived `verification-20260827T1703397294356Z-6904-fb42c270bed24db19aef7719b51a4ae7-recovered-by-command.json`, cleared the active claim, and returned `RESULT: RECOVERED`.
+- Operation-lease binary provenance: the host-built and VM-executed `deskanchor-verify.exe` files were confirmed to share SHA-256 `4FBB65542A05B4B3DDDF9A5A2B96F5FA7B516D110D208DD9F925A0491A5413CD` and correspond to commit `9a312c6649369b6dad559b0c4c2fa312dc4c3109`.
+- Operation-lease baseline smoke PASS: mutation, immediate restore, and settle verification passed in three attempts over 323 ms; the final full diff contained six unchanged and zero moved/missing/new/ambiguous items; evidence was archived as `verification-20260828T0133379303343Z-292-f07d2f17b2ae451b87e03d161c5094d7-verified.json`; and `active-recovery.json` was absent before and after the run.
+- Operation-lease persistent-recovery smoke PASS: the controlled mutation passed immediate readback and settle verification in three attempts over 325 ms with an exact mutated diff, then returned `RESULT: RECOVERY_REQUIRED` with `active-recovery.json` present. A separate `recover-last-verification` invocation returned `Settled`, passed settle verification in three attempts over 326 ms, produced an exact six-item final diff, archived `verification-20260828T0133544395307Z-8584-ab1ba3a514374ea3b538d803afa7ec11-recovered-by-command.json`, cleared the active claim, and returned `RESULT: RECOVERED`.
 - Pure settle-state behavior, snapshot/diff/matching/storage, recovery-record persistence/archive, failpoint parsing, fail-closed unknown values, opt-in enforcement, and recovery-guard state transitions pass non-destructive tests.
 - Remediation regression coverage includes operation-lease exclusion at the pre-mutation and active-removal boundaries, failpoint lease release, RecoveryGuard Drop ordering, atomic concurrent claim, ownership mismatch, archive/removal failure ordering, record tampering and unsafe IDs, fixture-only recovery authorization, non-fixture drift, strict fixture file validation, exact settle-deadline boundaries, and capture-error UI precedence.
 - Current-host non-destructive validation passes Rust formatting, clippy with warnings denied, 56 Rust tests, 2 frontend tests, frontend lint/typecheck/build, and the no-bundle Tauri production build. Both real-Explorer integration tests remain ignored on the host.
 
 The VM's legacy `Get-ComputerInfo` product-name string reported `Windows 10 Pro`, but build 22631 and the actual installed system are Windows 11 Pro 23H2. The evidence is recorded as Windows 11, not Windows 10.
 
-Both evidence generations come from one isolated VM configuration. The post-remediation runs show that the normal baseline and persistent-recovery workflows did not regress after the atomic-claim, format-v2 integrity, strict-fixture, and fixture-only recovery changes. They do not independently construct or prove the B1/B2/B3 boundary cases; those properties remain primarily supported by the dedicated unit and non-destructive regression tests. This is not a general Windows 11 or display-configuration support claim.
+All three evidence generations come from one isolated VM configuration. The first is historical pre-remediation evidence, the second covers the recovery-safety remediation at `2809762`, and the third covers the operation-lease implementation at `9a312c6`. The newest smoke runs show that adding the lifecycle operation lease did not regress the normal baseline or `after-mutation` → separate `recover-last-verification` Explorer workflows; the active marker remained present after the failpoint and was cleared only after exact recovery.
 
-The recorded post-remediation VM binary came from commit `28097628997e4183cbda7b0c2d8c3eab774437a7`, before the later lifecycle operation lease was added. That evidence remains valid for its recorded commit but does not validate the current execution path. A small isolated-VM baseline plus `after-mutation`/`recover-last-verification` smoke should be rerun for the operation-lease HEAD before readiness; concurrency safety itself is covered by deterministic host tests and code review rather than a timing-based VM experiment.
+The operation-lease smoke is not a constructive VM proof that the B1 cross-process concurrency race is impossible. That safety boundary remains primarily supported by the operation-lease code invariant, deterministic contention/regression tests, and independent code review. Likewise, the earlier B2/B3 boundary cases remain primarily supported by focused non-destructive tests and code review. None of these runs is a general Windows 11 or display-configuration support claim.
+
+The persistent `%LOCALAPPDATA%\DeskAnchor\verification\operation.lock` carrier file still existed after the smoke runs. This is expected and is not evidence of an active or unreleased lock: transient mutual exclusion is represented by the live exclusive Windows file handle, which closes when the process exits, while the carrier file may remain on disk.
 
 ## Known limitations
 
@@ -50,4 +56,4 @@ The recorded post-remediation VM binary came from commit `28097628997e4183cbda7b
 
 ## Next step
 
-Push the operation-lease remediation to Draft PR #1, run the small isolated-VM smoke, and return the updated HEAD to the independent reviewer. Do not mark the PR ready or merge it as part of this remediation.
+Commit the operation-lease smoke documentation to Draft PR #1 and return the updated HEAD to the independent reviewer. Do not mark the PR ready or merge it as part of this evidence-registration step.

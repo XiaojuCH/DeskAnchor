@@ -8,6 +8,8 @@ This is a test plan, not a claim of support. Change `TODO` only after running th
 | Win11 | 1 | 100% | Historical after-mutation recovery (pre-remediation) | PASS | Windows 11 Pro 23H2 build 22631 VM; mutation 3 attempts/322 ms; recovery 3 attempts/324 ms; final diff exact; active marker `True` → `False`; evidence: `verification-20260827T1152321625746Z-5368-recovered-by-command.json` |
 | Win11 | 1 | 100% | Post-remediation baseline round-trip | PASS | Commit `2809762`; binary SHA-256 `7870B9AD...999C926`; 6 icons; 3 attempts/323 ms; final diff exact; active marker absent; evidence: `verification-20260827T1703128240159Z-10580-b1c14ad04f2d4070b99df1c36b850556-verified.json` |
 | Win11 | 1 | 100% | Post-remediation after-mutation recovery | PASS | Commit `2809762`; binary SHA-256 `7870B9AD...999C926`; mutation 3 attempts/323 ms; recovery 3 attempts/324 ms; final diff exact; active marker absent; evidence: `verification-20260827T1703397294356Z-6904-fb42c270bed24db19aef7719b51a4ae7-recovered-by-command.json` |
+| Win11 | 1 | 100% | Operation-lease baseline round-trip | PASS | Commit `9a312c6`; binary SHA-256 `4FBB6554...1A5413CD`; 6 icons; 3 attempts/323 ms; final diff exact; active marker `False` → `False`; evidence: `verification-20260828T0133379303343Z-292-f07d2f17b2ae451b87e03d161c5094d7-verified.json` |
+| Win11 | 1 | 100% | Operation-lease after-mutation recovery | PASS | Commit `9a312c6`; binary SHA-256 `4FBB6554...1A5413CD`; mutation 3 attempts/325 ms; recovery 3 attempts/326 ms; final diff exact; active marker `False` → `True` → `False`; evidence: `verification-20260828T0133544395307Z-8584-ab1ba3a514374ea3b538d803afa7ec11-recovered-by-command.json` |
 | Win11 | 1 | 125% | Round-trip | TODO | |
 | Win11 | 1 | 150% | Round-trip | TODO | |
 | Win11 | 1 | 200% | Round-trip | TODO | |
@@ -22,7 +24,7 @@ This is a test plan, not a claim of support. Change `TODO` only after running th
 
 For every run, record the Windows edition/build, display identities/topology, scale, Explorer settings, command, console summary, and retained recovery evidence path. A failure remains a result; do not rerun until the active recovery guard is resolved.
 
-The first two PASS rows are retained as historical pre-remediation evidence. The next two rows record targeted post-remediation regression runs against the current atomic-claim, format-v2 integrity, strict-fixture, and fixture-only recovery implementation. These newer runs establish that the normal baseline and persistent-recovery workflows still pass; they do not separately construct the B1/B2/B3 boundary cases, which are primarily covered by unit and non-destructive regression tests.
+The first two PASS rows are retained as historical pre-remediation evidence. The next two rows record targeted recovery-safety remediation regression runs at `2809762`. The following two rows record operation-lease smoke runs at `9a312c6`. The newest runs establish that adding the lifecycle operation lease did not regress the normal baseline and persistent-recovery workflows; they do not constructively prove that the B1 concurrency race is impossible. That boundary is primarily supported by the operation-lease code invariant, deterministic contention/regression tests, and independent code review. B2/B3 remain primarily supported by focused non-destructive tests and code review.
 
 ## Recorded Phase 0.5 baseline evidence
 
@@ -53,6 +55,24 @@ The post-remediation baseline round-trip passed mutation, immediate restore, and
 The post-remediation persistent-recovery run passed fixture mutation, immediate readback, and settle verification in three attempts over 323 ms with an exact mutated diff, then returned `RESULT: RECOVERY_REQUIRED`. After removing the failpoint variable, a separate recovery invocation returned `Settled`, passed settle verification in three attempts over 324 ms, and produced a final exact full diff with six unchanged and zero moved, missing, new, or ambiguous items. It archived `verification-20260827T1703397294356Z-6904-fb42c270bed24db19aef7719b51a4ae7-recovered-by-command.json`, cleared the active claim, and returned `RESULT: RECOVERED`.
 
 These are post-remediation regression PASS results. They show no functional regression in the normal baseline and persistent-recovery workflows after the recovery-safety remediation. They are not constructive VM proofs of each B1/B2/B3 failure boundary and do not expand coverage to Windows 10, other DPI values, physical or multiple displays, mixed DPI, Explorer restart, RDP, Auto Arrange, or Align to Grid.
+
+## Recorded operation-lease remediation smoke evidence
+
+The host-built and VM-executed `deskanchor-verify.exe` files for commit `9a312c6649369b6dad559b0c4c2fa312dc4c3109` were confirmed to have the same SHA-256:
+
+```text
+4FBB65542A05B4B3DDDF9A5A2B96F5FA7B516D110D208DD9F925A0491A5413CD
+```
+
+The smoke runs used the same isolated Windows 11 Pro 23H2 build 22631 AMD64 VM with one 2283×1278 virtual display at 100% scale and six desktop items.
+
+The operation-lease baseline round-trip passed mutation, immediate restore, and settle verification in three attempts over 323 ms. Its final full diff contained six unchanged and zero moved, missing, new, or ambiguous items. Recovery was confirmed, evidence was archived as `verification-20260828T0133379303343Z-292-f07d2f17b2ae451b87e03d161c5094d7-verified.json`, and `active-recovery.json` was absent both before and after the run.
+
+The operation-lease persistent-recovery run passed fixture mutation, immediate readback, and settle verification in three attempts over 325 ms with an exact mutated diff, then triggered the controlled failpoint and returned `RESULT: RECOVERY_REQUIRED`. `active-recovery.json` was present after the failpoint. After removing the failpoint variable, a separate `recover-last-verification` invocation returned `Settled`, passed settle verification in three attempts over 326 ms, and produced a final exact full diff with six unchanged and zero moved, missing, new, or ambiguous items. It archived `verification-20260828T0133544395307Z-8584-ab1ba3a514374ea3b538d803afa7ec11-recovered-by-command.json`, cleared the active claim, and returned `RESULT: RECOVERED`; the active marker was absent at the end.
+
+After all smoke commands completed, `%LOCALAPPDATA%\DeskAnchor\verification\operation.lock` still existed and `Test-Path` returned `True`. This is expected: `operation.lock` is a persistent carrier file, while active transient mutual exclusion is represented by the live exclusive Windows file handle. Process exit closes that handle, so the carrier file's continued existence is not an active lock and must not be reported as a lock-release failure.
+
+These PASS results show that the lifecycle operation lease did not break the real baseline round-trip or the `after-mutation` → separate `recover-last-verification` Explorer workflow, and that the active marker remained after the failpoint and was cleared after exact recovery. They are not a constructive VM proof of the B1 cross-process race boundary; B1 remains primarily supported by the operation-lease code invariant, deterministic contention/regression tests, and independent code review. They do not expand coverage to Windows 10, other DPI values, physical or multiple displays, mixed DPI, Explorer restart, RDP, Auto Arrange, or Align to Grid.
 
 ## Historical Phase 0 evidence
 
