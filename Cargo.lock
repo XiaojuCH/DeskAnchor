@@ -546,11 +546,14 @@ name = "deskanchor-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dirs",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror 2.0.20",
  "time",
+ "uuid",
  "windows 0.62.2",
 ]
 

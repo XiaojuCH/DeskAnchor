@@ -2,32 +2,58 @@
 
 ## Current phase
 
-Phase 0 — Desktop API feasibility and project bootstrap.
+Phase 0.5C — Record operation-lease VM smoke evidence for Draft PR #1. No product feature expansion.
 
 ## Completed
 
-- Rust workspace with a reusable `deskanchor-core` crate and a thin Tauri v2 application.
-- Supported Shell COM desktop discovery and icon enumeration using `IShellWindows` and `IFolderView`.
-- Version 1 JSON snapshot model, validation, local atomic storage, display signature, pure diff/matching, guarded restore, and minimal React UI.
-- Windows display capture through CCD (`QueryDisplayConfig`) with a GDI fallback.
-- Unit tests, an ignored real-Windows capture test, developer probe, internal documentation, and Windows CI definition.
+- Phase 0 reusable Rust core, supported Shell desktop discovery, versioned local snapshots, exact diff/matching, guarded restore, thin Tauri commands, and minimal React UI.
+- Bounded settle verification with configurable polling interval, polling deadline, and required consecutive exact full-desktop observations.
+- Explicit restore outcomes for Shell positioning failure, immediate verification failure, later settle failure, settled success, display blocking, unresolved items, and nothing-to-restore.
+- Developer-only fixed-fixture destructive verification harness with an identity allowlist and no random-item fallback.
+- Persistent pre-mutation recovery guard, retained completion evidence, RAII recovery for unwind/ordinary error, and `recover-last-verification` crash-recovery command.
+- Every supported verification/recovery command acquires the same transient Windows operation lease before entering recovery-store state. A live exclusive `operation.lock` handle, not the lock file's existence, serializes capture, active-claim creation/load, fixture mutation/recovery, archive, and active removal. Contention fails immediately with `VerificationRecoveryError::OperationBusy`; Windows releases the handle if the process exits or crashes.
+- Cross-process recovery ownership is separately persisted with an atomic no-replace active-claim create. The complete format-v2 record is flushed and read back before mutation; every mutation and completion also revalidates the verification ID, ownership token, and sealed record.
+- Recovery records persist the exact two-identity fixture allowlist, expected display configuration, original snapshot, and swap metadata under a SHA-256 corruption-detection digest. Recovery preflight rejects display changes and all non-fixture drift, and every recovery write uses the fixture-only subset restore path.
+- Fixture validation requires uniquely named, filesystem-backed regular files at the current user's Desktop known-folder paths and rejects directories, symlink/reparse items, wrong paths, and merged-desktop basename duplicates.
+- Developer-only `after-mutation` controlled recovery failpoint. It requires both explicit environment gates, disarms RAII only after mutation settles, leaves the active recovery record in place, and returns `RECOVERY_REQUIRED` without crashing the process.
+- Manual Windows verification matrix, VM instructions, the first Phase 0.5 baseline evidence record, and isolated-VM persistent recovery evidence.
+- Targeted post-remediation baseline and persistent-recovery regression evidence for the binary built from commit `28097628997e4183cbda7b0c2d8c3eab774437a7`.
+- Operation-lease baseline and persistent-recovery smoke evidence for the binary built from commit `9a312c6649369b6dad559b0c4c2fa312dc4c3109`.
 
 ## Verified
 
-- Real Explorer read-only capture on Windows 11 24H2 (build 26100): identity and position were obtained for every visible desktop item in the test environment.
-- Guarded real Save → Move → Restore on the same machine: two ordinary filesystem icons were swapped through the supported Shell API, the changed positions survived recapture, and the original snapshot restored every icon to its starting coordinate. The recovery snapshot was written before mutation and retained locally. The final DPI-unaware Shell worker passed from both a default host and a simulated Per-Monitor V2 host.
-- Pure Rust snapshot, validation, diff, matching, storage, and monitor-signature tests.
-- Frontend checks and an optimized Tauri application build without an installer bundle.
+- Historical pre-remediation baseline evidence: the fixed-fixture harness passed on an isolated Windows 11 Pro 23H2 build 22631 AMD64 VM with one 2283×1278 virtual display at 100% scale and six desktop items. Mutation and settle passed; recovery used three observations over 323 ms; the final full diff was exact; evidence was archived as `verification-20260827T1059529044508Z-10848-verified.json`; and the active marker was absent.
+- Historical pre-remediation persistent-recovery evidence: the `after-mutation` mutation passed immediate readback and settled in three attempts over 322 ms, the operator visually confirmed the exchanged fixtures after `RECOVERY_REQUIRED`, and a separate recovery invocation settled in three attempts over 324 ms. Its final full diff was exact, evidence was archived as `verification-20260827T1152321625746Z-5368-recovered-by-command.json`, and the active marker was absent after `RESULT: RECOVERED`.
+- Post-remediation binary provenance: the host-built and VM-executed `deskanchor-verify.exe` files were confirmed to share SHA-256 `7870B9ADAEFB08A3CD1C5389934C778C1053096F019D5218727FDE471999C926` and correspond to commit `28097628997e4183cbda7b0c2d8c3eab774437a7`.
+- Post-remediation baseline regression PASS: mutation, immediate restore, and settle verification passed in three attempts over 323 ms; the final full diff contained six unchanged and zero moved/missing/new/ambiguous items; evidence was archived as `verification-20260827T1703128240159Z-10580-b1c14ad04f2d4070b99df1c36b850556-verified.json`; and `active-recovery.json` was absent afterward.
+- Post-remediation persistent-recovery regression PASS: the controlled mutation passed immediate readback and settle verification in three attempts over 323 ms with an exact mutated diff, then returned `RECOVERY_REQUIRED`. A separate `recover-last-verification` invocation returned `Settled`, passed settle verification in three attempts over 324 ms, produced an exact six-item final diff, archived `verification-20260827T1703397294356Z-6904-fb42c270bed24db19aef7719b51a4ae7-recovered-by-command.json`, cleared the active claim, and returned `RESULT: RECOVERED`.
+- Operation-lease binary provenance: the host-built and VM-executed `deskanchor-verify.exe` files were confirmed to share SHA-256 `4FBB65542A05B4B3DDDF9A5A2B96F5FA7B516D110D208DD9F925A0491A5413CD` and correspond to commit `9a312c6649369b6dad559b0c4c2fa312dc4c3109`.
+- Operation-lease baseline smoke PASS: mutation, immediate restore, and settle verification passed in three attempts over 323 ms; the final full diff contained six unchanged and zero moved/missing/new/ambiguous items; evidence was archived as `verification-20260828T0133379303343Z-292-f07d2f17b2ae451b87e03d161c5094d7-verified.json`; and `active-recovery.json` was absent before and after the run.
+- Operation-lease persistent-recovery smoke PASS: the controlled mutation passed immediate readback and settle verification in three attempts over 325 ms with an exact mutated diff, then returned `RESULT: RECOVERY_REQUIRED` with `active-recovery.json` present. A separate `recover-last-verification` invocation returned `Settled`, passed settle verification in three attempts over 326 ms, produced an exact six-item final diff, archived `verification-20260828T0133544395307Z-8584-ab1ba3a514374ea3b538d803afa7ec11-recovered-by-command.json`, cleared the active claim, and returned `RESULT: RECOVERED`.
+- Pure settle-state behavior, snapshot/diff/matching/storage, recovery-record persistence/archive, failpoint parsing, fail-closed unknown values, opt-in enforcement, and recovery-guard state transitions pass non-destructive tests.
+- Remediation regression coverage includes operation-lease exclusion at the pre-mutation and active-removal boundaries, failpoint lease release, RecoveryGuard Drop ordering, atomic concurrent claim, ownership mismatch, archive/removal failure ordering, record tampering and unsafe IDs, fixture-only recovery authorization, non-fixture drift, strict fixture file validation, exact settle-deadline boundaries, and capture-error UI precedence.
+- Current-host non-destructive validation passes Rust formatting, clippy with warnings denied, 56 Rust tests, 2 frontend tests, frontend lint/typecheck/build, and the no-bundle Tauri production build. Both real-Explorer integration tests remain ignored on the host.
+
+The VM's legacy `Get-ComputerInfo` product-name string reported `Windows 10 Pro`, but build 22631 and the actual installed system are Windows 11 Pro 23H2. The evidence is recorded as Windows 11, not Windows 10.
+
+All three evidence generations come from one isolated VM configuration. The first is historical pre-remediation evidence, the second covers the recovery-safety remediation at `2809762`, and the third covers the operation-lease implementation at `9a312c6`. The newest smoke runs show that adding the lifecycle operation lease did not regress the normal baseline or `after-mutation` → separate `recover-last-verification` Explorer workflows; the active marker remained present after the failpoint and was cleared only after exact recovery.
+
+The operation-lease smoke is not a constructive VM proof that the B1 cross-process concurrency race is impossible. That safety boundary remains primarily supported by the operation-lease code invariant, deterministic contention/regression tests, and independent code review. Likewise, the earlier B2/B3 boundary cases remain primarily supported by focused non-destructive tests and code review. None of these runs is a general Windows 11 or display-configuration support claim.
+
+The persistent `%LOCALAPPDATA%\DeskAnchor\verification\operation.lock` carrier file still existed after the smoke runs. This is expected and is not evidence of an active or unreleased lock: transient mutual exclusion is represented by the live exclusive Windows file handle, which closes when the process exits, while the carrier file may remain on disk.
 
 ## Known limitations
 
-- Identity uses the Shell desktop-absolute parsing name. Rename/move changes filesystem identity, and exceptional third-party namespace extensions may not provide a durable parsing name.
-- v0.1 blocks restore when the normalized display signature differs; it does not remap coordinates across monitor changes.
-- Explorer restart during an operation can invalidate COM interfaces. Each operation reacquires the desktop view, but automatic retry is not implemented.
-- Automatic Arrange or Align to Grid settings may change/ignore requested positions.
-- CCD is unavailable in some remote/non-console sessions; fallback monitor identity then uses the less stable GDI source name.
-- The Tauri window was production-built, but its visible button flow was not manually exercised; the equivalent core restore path was exercised under a simulated Per-Monitor V2 host process.
+- The controlled `after-mutation` path and subsequent cross-process recovery are verified in one isolated VM configuration only.
+- Controlled orphan mode validates the persistent recovery workflow without using panic, abort, or process termination. Its successful VM result does not reproduce every real crash timing or failure mode.
+- A process kill, abort, VM crash, or power loss cannot execute RAII recovery. Recovery still depends on the persisted active record and an environment compatible with the original snapshot.
+- The settle deadline bounds the polling/observation loop between completed synchronous Shell captures. A single in-progress Shell/COM capture has no hard-cancellation guarantee and can exceed that observation window.
+- Recovery fails closed on a changed display signature, unresolved fixture identity, or any moved/missing/new/ambiguous non-fixture item. The active recovery claim remains for operator investigation.
+- A partial active claim means record persistence did not complete and fixture mutation was never authorized. It intentionally blocks automated recovery and new verification until an operator preserves and investigates the file; no automatic partial-claim deletion command exists.
+- The SHA-256 record digest detects accidental corruption or manual edits when the digest is not recomputed. It is not a security boundary against a malicious process running as the same Windows user that can modify both program and local files.
+- Fixture preparation is manual. Duplicate fixture basenames across merged desktop locations are rejected.
+- 125%/150%/200% DPI, physical and multiple displays, mixed DPI, Explorer restart, RDP, Auto Arrange, Align to Grid, and Windows 10 remain unverified.
 
 ## Next step
 
-Repeat the guarded two-icon round-trip verification on a small set of representative Windows 10/11 machines and record the behavior of Explorer settings (Auto Arrange/Align to Grid), DPI combinations, Explorer restart, and multi-monitor layouts before expanding Phase 1 UX.
+Commit the operation-lease smoke documentation to Draft PR #1 and return the updated HEAD to the independent reviewer. Do not mark the PR ready or merge it as part of this evidence-registration step.
