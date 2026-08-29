@@ -8,4 +8,4 @@ pub use diff::{
     AmbiguousIcon, IconPosition, MovedIcon, SnapshotDiff, SnapshotDiffSummary, diff_desktop,
 };
 pub use model::{CURRENT_SCHEMA_VERSION, Snapshot, SnapshotError};
-pub use storage::{SnapshotStore, StoredSnapshot};
+pub use storage::{SavedLayoutSummary, SnapshotStore, StoredSnapshot};

@@ -195,6 +195,36 @@ mod tests {
     }
 
     #[test]
+    fn exact_desktop_is_reported_as_an_exact_match() {
+        let snapshot = sample_snapshot();
+        let current = DesktopState {
+            display: snapshot.display.clone(),
+            icons: snapshot.icons.clone(),
+        };
+
+        let summary = diff_desktop(&snapshot, &current).summary();
+
+        assert!(summary.is_exact_match());
+        assert_eq!(summary.unchanged, 1);
+    }
+
+    #[test]
+    fn display_mismatch_is_reported_without_remapping_coordinates() {
+        let snapshot = sample_snapshot();
+        let mut current = DesktopState {
+            display: snapshot.display.clone(),
+            icons: snapshot.icons.clone(),
+        };
+        current.display.signature = "display-v1|different".into();
+
+        let summary = diff_desktop(&snapshot, &current).summary();
+
+        assert!(!summary.display_matches);
+        assert_eq!(summary.unchanged, 1);
+        assert!(!summary.is_exact_match());
+    }
+
+    #[test]
     fn duplicate_identity_is_ambiguous_and_never_moved() {
         let mut snapshot = sample_snapshot();
         snapshot.icons = vec![icon("duplicate", 1, 2)];

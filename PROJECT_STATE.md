@@ -2,10 +2,13 @@
 
 ## Current phase
 
-Phase 0.5C — Record operation-lease VM smoke evidence for Draft PR #1. No product feature expansion.
+Phase 1A — Single canonical Saved Layout plus non-destructive Compare. Phase 0.5 is complete, and PR #1 was squash-merged to `main` as `f6cff9852a446df3fd66d30e2c8c400e294331b4`.
 
 ## Completed
 
+- Phase 1A canonical `%LOCALAPPDATA%\DeskAnchor\snapshots\saved-layout.json` storage contract. A complete validated snapshot is written and flushed to a same-directory temporary file, then published on Windows with `MoveFileExW(MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)` without a delete-first gap. A failed publication leaves the previous saved layout valid.
+- Phase 1A ID-less `get_saved_layout`, `save_saved_layout`, and `compare_saved_layout` Tauri commands. Legacy timestamp snapshot APIs remain for internal compatibility, but the Phase 1 product workflow does not enumerate or depend on them.
+- Phase 1A single-layout React workflow with automatic startup Compare, explicit Save/Replace behavior, exact/moved/missing/new/ambiguous/display-mismatch states, unavailable/corrupt feedback, and request-generation protection against stale async responses. The production UI exposes no Restore action in Phase 1A.
 - Phase 0 reusable Rust core, supported Shell desktop discovery, versioned local snapshots, exact diff/matching, guarded restore, thin Tauri commands, and minimal React UI.
 - Bounded settle verification with configurable polling interval, polling deadline, and required consecutive exact full-desktop observations.
 - Explicit restore outcomes for Shell positioning failure, immediate verification failure, later settle failure, settled success, display blocking, unresolved items, and nothing-to-restore.
@@ -22,6 +25,10 @@ Phase 0.5C — Record operation-lease VM smoke evidence for Draft PR #1. No prod
 
 ## Verified
 
+- Phase 1A current-host automatic validation passes Rust formatting, clippy with warnings denied, 67 non-destructive Rust tests, 11 frontend tests, frontend lint/typecheck/build, and the no-bundle Tauri production build. Both real-Explorer integration tests remain ignored.
+- The Phase 1A normal-host read-only Explorer capture smoke passed when the specific ignored capture test was selected by name. The destructive fixture round-trip remained filtered out and was not run.
+- Phase 1A replacement regression coverage includes no canonical layout, first publication, successful replacement, controlled publication failure, an actual Windows sharing-conflict failure, corrupt/unsupported canonical data, and isolation from legacy timestamp snapshots. Both failure tests confirm that the prior valid canonical snapshot remains loadable.
+- Phase 1A frontend coverage includes no saved layout, exact and changed comparisons, all five diff counts, display mismatch without remapping, corrupt/unavailable saved data, current capture failure, Save and Replace success, Replace failure without a false success state, and deterministic stale-response suppression.
 - Historical pre-remediation baseline evidence: the fixed-fixture harness passed on an isolated Windows 11 Pro 23H2 build 22631 AMD64 VM with one 2283×1278 virtual display at 100% scale and six desktop items. Mutation and settle passed; recovery used three observations over 323 ms; the final full diff was exact; evidence was archived as `verification-20260827T1059529044508Z-10848-verified.json`; and the active marker was absent.
 - Historical pre-remediation persistent-recovery evidence: the `after-mutation` mutation passed immediate readback and settled in three attempts over 322 ms, the operator visually confirmed the exchanged fixtures after `RECOVERY_REQUIRED`, and a separate recovery invocation settled in three attempts over 324 ms. Its final full diff was exact, evidence was archived as `verification-20260827T1152321625746Z-5368-recovered-by-command.json`, and the active marker was absent after `RESULT: RECOVERED`.
 - Post-remediation binary provenance: the host-built and VM-executed `deskanchor-verify.exe` files were confirmed to share SHA-256 `7870B9ADAEFB08A3CD1C5389934C778C1053096F019D5218727FDE471999C926` and correspond to commit `28097628997e4183cbda7b0c2d8c3eab774437a7`.
@@ -44,6 +51,8 @@ The persistent `%LOCALAPPDATA%\DeskAnchor\verification\operation.lock` carrier f
 
 ## Known limitations
 
+- Phase 1A intentionally has no product Restore entry. The known moved-plus-missing/new/ambiguous settle-contract issue remains for Phase 1B; restore outcomes, settle behavior, Shell positioning, and the developer verifier were not changed.
+- Legacy timestamp-based Phase 0 snapshot JSON files are neither migrated nor deleted. They are ignored by canonical saved-layout loading and are not exposed as product history.
 - The controlled `after-mutation` path and subsequent cross-process recovery are verified in one isolated VM configuration only.
 - Controlled orphan mode validates the persistent recovery workflow without using panic, abort, or process termination. Its successful VM result does not reproduce every real crash timing or failure mode.
 - A process kill, abort, VM crash, or power loss cannot execute RAII recovery. Recovery still depends on the persisted active record and an environment compatible with the original snapshot.
@@ -56,4 +65,4 @@ The persistent `%LOCALAPPDATA%\DeskAnchor\verification\operation.lock` carrier f
 
 ## Next step
 
-Commit the operation-lease smoke documentation to Draft PR #1 and return the updated HEAD to the independent reviewer. Do not mark the PR ready or merge it as part of this evidence-registration step.
+Review the Phase 1A single Saved Layout plus Compare implementation as a normal feature PR. Do not merge it as part of the implementation pass. Phase 1B should address the restore/partial-result contract separately after Phase 1A is accepted.

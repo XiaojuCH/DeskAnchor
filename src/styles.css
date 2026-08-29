@@ -56,7 +56,7 @@ main {
 
 header,
 .current-panel,
-.snapshot,
+.saved-layout-heading,
 .section-heading,
 footer,
 .actions {
@@ -66,7 +66,7 @@ footer,
 
 header,
 .current-panel,
-.snapshot,
+.saved-layout-heading,
 .section-heading,
 footer {
   justify-content: space-between;
@@ -96,7 +96,7 @@ h3 {
 }
 
 .subtitle,
-.snapshot p,
+.saved-layout-heading p,
 .section-heading span,
 footer {
   color: #616161;
@@ -136,16 +136,11 @@ footer {
   margin-bottom: 12px;
 }
 
-.snapshot-list {
-  display: grid;
-  gap: 10px;
+.saved-layout-card {
+  padding: 20px;
 }
 
-.snapshot {
-  padding: 16px 18px;
-}
-
-.snapshot p {
+.saved-layout-heading p {
   margin-top: 5px;
 }
 
@@ -157,6 +152,99 @@ footer {
   padding: 32px 18px;
   color: #616161;
   text-align: center;
+}
+
+.empty-action {
+  display: grid;
+  justify-items: center;
+  gap: 18px;
+}
+
+.empty-action p {
+  max-width: 520px;
+  margin-top: 7px;
+  font-size: 14px;
+}
+
+.replacement-note,
+.comparison-note {
+  margin-top: 16px;
+  color: #616161;
+  font-size: 13px;
+}
+
+.comparison-result,
+.callout {
+  display: grid;
+  gap: 6px;
+}
+
+.comparison-result {
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.callout {
+  padding: 12px 14px;
+  border-left: 4px solid #616161;
+  border-radius: 3px;
+  background: #f5f5f5;
+  font-size: 13px;
+}
+
+.callout.success {
+  border-left-color: #107c10;
+  background: #f1faf1;
+}
+
+.callout.warning {
+  border-left-color: #c19c00;
+  background: #fff9e8;
+}
+
+.callout.error {
+  border-left-color: #c42b1c;
+  background: #fdf3f2;
+}
+
+.callout span {
+  color: #424242;
+}
+
+.diff-counts {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.diff-counts div {
+  padding: 10px;
+  border: 1px solid #e1e1e1;
+  border-radius: 4px;
+  text-align: center;
+}
+
+.diff-counts dt {
+  color: #616161;
+  font-size: 12px;
+}
+
+.diff-counts dd {
+  margin: 4px 0 0;
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.diff-legend {
+  margin-top: 10px;
+  color: #616161;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.error-text {
+  color: #c42b1c;
 }
 
 footer {
@@ -189,13 +277,29 @@ footer {
 
   .summary,
   .status,
-  .snapshot p,
+  .saved-layout-heading p,
   .section-heading span,
   footer,
   .subtitle,
   .phase,
-  .empty {
+  .empty,
+  .replacement-note,
+  .comparison-note,
+  .diff-legend,
+  .callout span,
+  .diff-counts dt {
     color: #c7c7c7;
+  }
+
+  .callout,
+  .callout.success,
+  .callout.warning,
+  .callout.error {
+    background: #333333;
+  }
+
+  .diff-counts div {
+    border-color: #4d4d4d;
   }
 
   .phase {
@@ -211,7 +315,7 @@ footer {
 
   header,
   .current-panel,
-  .snapshot,
+  .saved-layout-heading,
   footer {
     align-items: stretch;
     flex-direction: column;
@@ -224,6 +328,10 @@ footer {
 
   .actions button {
     flex: 1;
+  }
+
+  .diff-counts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .status {
