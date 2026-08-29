@@ -178,6 +178,9 @@ impl SnapshotStore {
             let Some(id) = path.file_name().and_then(OsStr::to_str) else {
                 continue;
             };
+            if is_saved_layout_id(id) {
+                continue;
+            }
             let snapshot = self.load(id)?;
             entries.push(StoredSnapshot::from_snapshot(id.into(), &snapshot));
         }
@@ -225,6 +228,9 @@ impl StoredSnapshot {
 }
 
 fn validate_snapshot_id(id: &str) -> Result<()> {
+    if is_saved_layout_id(id) {
+        bail!("saved layout filename is reserved")
+    }
     let path = Path::new(id);
     let mut components = path.components();
     let valid_component =
@@ -238,6 +244,10 @@ fn validate_snapshot_id(id: &str) -> Result<()> {
         bail!("invalid snapshot id")
     }
     Ok(())
+}
+
+fn is_saved_layout_id(id: &str) -> bool {
+    id.eq_ignore_ascii_case(SAVED_LAYOUT_FILE)
 }
 
 #[cfg(windows)]
@@ -464,19 +474,73 @@ mod tests {
     }
 
     #[test]
-    fn legacy_timestamp_snapshots_do_not_affect_canonical_load() {
+    fn valid_canonical_saved_layout_is_excluded_from_legacy_listing() {
         let temporary = tempfile::tempdir().expect("create temporary directory");
         let store = SnapshotStore::new(temporary.path());
         let legacy = sample_snapshot();
-        store.save(&legacy).expect("save legacy timestamp snapshot");
+        let stored_legacy = store.save(&legacy).expect("save legacy timestamp snapshot");
 
         assert_eq!(store.load_saved_layout().expect("load saved layout"), None);
 
-        let mut canonical = legacy;
+        let mut canonical = legacy.clone();
         canonical.created_at = "2026-08-28T03:04:05Z".into();
         store
             .replace_saved_layout(&canonical)
             .expect("save canonical layout");
+
+        assert_eq!(
+            store.list().expect("list legacy snapshots"),
+            vec![stored_legacy.clone()]
+        );
+        assert_eq!(
+            store
+                .load(&stored_legacy.id)
+                .expect("load legacy timestamp snapshot"),
+            legacy
+        );
+        assert_eq!(
+            store.load_saved_layout().expect("load canonical layout"),
+            Some(canonical)
+        );
+    }
+
+    #[test]
+    fn corrupt_canonical_saved_layout_does_not_break_legacy_listing() {
+        let temporary = tempfile::tempdir().expect("create temporary directory");
+        let store = SnapshotStore::new(temporary.path());
+        let legacy = sample_snapshot();
+        let stored_legacy = store.save(&legacy).expect("save legacy timestamp snapshot");
+        fs::write(store.saved_layout_path(), "{not valid JSON")
+            .expect("write corrupt saved layout");
+
+        assert_eq!(
+            store.list().expect("list legacy snapshots"),
+            vec![stored_legacy]
+        );
+        let error = store
+            .load_saved_layout()
+            .expect_err("corrupt canonical layout must fail independently");
+        assert!(error.to_string().contains("saved layout validation failed"));
+    }
+
+    #[test]
+    fn legacy_direct_load_rejects_canonical_reserved_id() {
+        let temporary = tempfile::tempdir().expect("create temporary directory");
+        let store = SnapshotStore::new(temporary.path());
+        let canonical = sample_snapshot();
+        store
+            .replace_saved_layout(&canonical)
+            .expect("save canonical layout");
+
+        let error = store
+            .load(SAVED_LAYOUT_FILE)
+            .expect_err("legacy load must reject the canonical reserved id");
+
+        assert!(
+            error
+                .to_string()
+                .contains("saved layout filename is reserved")
+        );
         assert_eq!(
             store.load_saved_layout().expect("load canonical layout"),
             Some(canonical)
